@@ -2,7 +2,7 @@ import numpy
 import unittest
 from Components.Translation import TranslateRand
 
-class Test_Translationtests(unittest.TestCase):
+class Test_Translation(unittest.TestCase):
     def test_Translation_CorrectInput(self):
         baseMatrix = numpy.array([[1,1,1],[1,1,1],[1,1,1]])
         testMatrix = TranslateRand(baseMatrix)
