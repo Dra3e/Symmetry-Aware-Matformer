@@ -5,8 +5,8 @@ from components.reflection import reflection_matrix, reflect_crystal
 
 # Example usage:
 if __name__ == "__main__":
-    # Dummy example crystal with 4 atoms.
-    # A is a dummy (4 x 3) feature matrix.
+    # Example with NaCl
+    # A is a 2 x 2 matrix with the atom nr. and charge in each row
     A = np.array([
         [11, 1],
         [17, -1]
