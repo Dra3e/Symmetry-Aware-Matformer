@@ -1,7 +1,7 @@
 import numpy as np
-from components.reflection import reflection_matrix, reflect_crystal
+from components.reflection import reflect_crystal
 
-#To run write python -m models.example
+#To run write "python -m models.reflection_example"
 
 # Example usage:
 if __name__ == "__main__":
