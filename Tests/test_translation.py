@@ -33,3 +33,4 @@ class Test_Translation(unittest.TestCase):
 
         with self.assertRaises(Exception):
             A_output,X_output,L_output = TranslateRand("fail")
+            

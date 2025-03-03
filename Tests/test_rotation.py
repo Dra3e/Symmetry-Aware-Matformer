@@ -66,3 +66,4 @@ class TestRotate3DObject(unittest.TestCase):
         _, X_rot, _ = rotate_3d_object(None, X, L, axis, angle)
         expected_X_rot = np.array([[-1, 2, -3]])
         np.testing.assert_array_almost_equal(X_rot, expected_X_rot, decimal=6)
+        

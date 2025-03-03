@@ -24,3 +24,4 @@ def TranslateRand(A, X, L, direction):
         for r in range(X.shape[0]): # Goes through every row of the X-matrix and adds the directional vector
             X_translated[r] = np.add(X[r],direction) 
         return A, X_translated, L
+    

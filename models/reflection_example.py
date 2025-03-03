@@ -40,3 +40,4 @@ if __name__ == "__main__":
     print(L)
     print("\nReflected Lattice L_ref:")
     print(L_ref)
+    
