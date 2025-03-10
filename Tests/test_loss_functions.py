@@ -12,29 +12,38 @@ class Test_Loss_Functions(unittest.TestCase):
 
         self.assertEqual(expected_loss, calculated_loss)
 
-    def test_LossProperty_WrongSize(self):
+    def test_LossProperty_WrongInput(self):
         Y_input = np.array([1,1,1,1])
-        Y_predicted = np.array([1,1,1])
+        wrong_dimension_predicted = np.array([[1,1],[1,1]])
+        wrong_size_predicted = np.array([1,1,1])
         
         with self.assertRaises(Exception):
-            calculated_loss = LossProperty(Y_input, Y_predicted)
-    
-    def test_LossProperty_WrongDimension(self):
-        Y_input = np.array([1,1,1,1])
-        Y_predicted = np.array([[1,1],[1,1]])
-        
+            calculated_loss = LossProperty(Y_input, wrong_dimension_predicted)
         with self.assertRaises(Exception):
-            calculated_loss = LossProperty(Y_input, Y_predicted)
+            calculated_loss = LossProperty(Y_input, wrong_size_predicted)
     
     def test_LossContrastive_CorrectInput(self):
-        F_input = np.array([[1,1,1,1]])
-        F_predicted = np.array([[1,1,1,1]])
+        F_input = np.array([[1,1,1,1],[1,1,1,1]])
+        F_predicted = np.array([[1,1,1,1],[3,3,3,3]])
+        Augmentation_Label = np.array([0,1])
         margin = 3
         expected_loss = 0
 
-        calculated_loss = LossContrastive(F_input, F_predicted, margin, 1)
+        calculated_loss = LossContrastive(F_input, F_predicted, Augmentation_Label, margin)
 
         self.assertEqual(expected_loss, calculated_loss)
+    
+    def test_LossContrastive_WrongInput(self):
+        F_input = np.array([[1,1,1,1],[1,1,1,1]])
+        wrong_dimension_predicted = np.array([1,1,1,1,3,3,3,3])
+        wrong_size_predicted = np.array([[1,1,1],[3,3,3]])
+        Augmentation_Label = np.array([0,1])
+        margin = 3
+
+        with self.assertRaises(Exception):
+            calculated_loss = LossContrastive(F_input, wrong_dimension_predicted, Augmentation_Label, margin)
+        with self.assertRaises(Exception):
+            calculated_loss = LossContrastive(F_input, wrong_size_predicted, Augmentation_Label, margin)
     
     def test_LossFactor_CorrectInput(self):
         factor_loss = 0
