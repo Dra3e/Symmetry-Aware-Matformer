@@ -42,7 +42,4 @@ def reflect_crystal(A, X, L, normal_vector, point=None):
         # Subtract the point, reflect, then add it back.
         X_reflected = np.dot(R, (X - point).T).T + point
 
-    # Update the lattice so that the periodicity is preserved.
-    L_reflected = np.dot(R, L)
-
-    return A, X_reflected, L_reflected
+    return A, X_reflected, L 

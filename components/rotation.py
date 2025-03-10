@@ -33,7 +33,4 @@ def rotate_3d_object(A, X, L, axis, angle_degrees):
     X_rotated = np.dot(X, R.T)
     X_rotated = np.round(X_rotated, decimals=6)  # Round for cleaner output
     
-    L_rotated = np.dot(L, R.T)
-    L_rotated = np.round(L_rotated, decimals=6)
-    
-    return A, X_rotated, L_rotated
+    return A, X_rotated, L
