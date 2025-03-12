@@ -4,7 +4,7 @@ def rotate_3d_object(A, X, L, axis, angle_degrees):
     """
     Rotates a set of 3D points and an optional lattice around a given axis by a specified angle in degrees.
     
-    Parameters:
+    Keyword arguments:
     - A: numpy array of shape (n, f) containing atomic features (remains unchanged).
     - X (np.ndarray): An (N, 3) array of 3D points.
     - L (np.ndarray, optional): A (3, 3) lattice matrix to be rotated.

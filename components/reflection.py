@@ -19,7 +19,7 @@ def reflect_crystal(A, X, L, normal_vector, point=None):
     """
     Reflect a crystal structure across a mirror plane.
 
-    Parameters:
+    Keyword arguments:
     - A: numpy array of shape (n, f) containing atomic features (remains unchanged).
     - X: numpy array of shape (n, 3) containing atomic coordinates.
     - L: numpy array of shape (3, 3) representing the lattice vectors.

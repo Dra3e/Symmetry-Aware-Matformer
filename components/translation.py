@@ -4,7 +4,7 @@ def TranslateRand(A, X, L, direction):
     """
     Move a crystal structure through 3d space by a directional vector.
 
-    Parameters:
+    Keyword arguments:
     - A: numpy array of shape (n, f) containing atomic features (remains unchanged).
     - X: numpy array of shape (n, 3) containing atomic coordinates.
     - L: numpy array of shape (3, 3) representing the lattice vectors (remains unchanged).
