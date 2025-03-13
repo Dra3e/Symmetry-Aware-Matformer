@@ -40,8 +40,8 @@ class CrystalGraph(nn.Module):
                 - Each entry d_ij represents the distance between atom i and atom j.
 
         Returns:
-            torch.Tensor: Node feature matrix f*_i of shape (N, h).
-            torch.Tensor: Edge feature matrix e^h_ij of shape (N, N, h).
+            f* torch.Tensor: Node feature matrix f*_i of shape (N, h).
+            e^h torch.Tensor: Edge feature matrix e^h_ij of shape (N, N, h).
         """
         # f*_i = LN(CGCNN(a_i))
         f_star = self.atom_embedding(A)
@@ -81,7 +81,7 @@ class CGCNN(nn.Module):
                 - d: Atomic feature dimension.
 
         Returns:
-            torch.Tensor: Transformed node feature matrix f*_i of shape (N, h).
+            f*_i torch.Tensor: Transformed node feature matrix f*_i of shape (N, h).
         """
         return self.embedding(A)  # Linear transformation
 
@@ -116,7 +116,7 @@ class EdgeTransformation(nn.Module):
                 - N: Number of atoms.
 
         Returns:
-            torch.Tensor: Transformed edge embeddings of shape (N, N, hidden_dim).
+            e^h_ij torch.Tensor: Transformed edge embeddings of shape (N, N, hidden_dim).
         """
         rbf_features = self.rbf_expansion(D)
         return self.activation(self.linear(rbf_features))  # Linear transformation + Softplus
@@ -124,6 +124,11 @@ class EdgeTransformation(nn.Module):
 class RBF(nn.Module):
     """
     Expands the distance matrix D using Radial Basis Function (RBF) kernels.
+        exp(-gamma(d_ij-k)^2)
+
+        d_ij    is the distance between atoms a_i and a_j
+        k       is the distance of the center of the RBF kernel from atom a_i
+        gamma   determines the distance between the kernels (lower gamme = higher distance)
 
     Instead of using raw distances, RBF transforms them into a high-dimensional 
     feature space where each entry encodes how close a distance is to predefined centers.
