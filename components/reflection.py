@@ -7,7 +7,7 @@ def reflection_matrix(normal_vector):
     
     R = I - 2 * n * n^T
     """
-    normal_vector = torch.tensor(normal_vector, dtype=torch.float32)
+    normal_vector = normal_vector.clone().detach().float()
     norm = torch.norm(normal_vector)  # Compute the length of normal_vector
     if norm == 0:
         raise ValueError("Normal vector cannot be the zero vector.")
@@ -38,7 +38,7 @@ def reflect_crystal(A, X, L, normal_vector, point=None):
         # Mirror plane through the origin
         X_reflected = torch.matmul(R, X.T).T
     else:
-        point = torch.tensor(point, dtype=torch.float32)
+        point = point.clone().detach().float()
         # Subtract the point, reflect, then add it back
         X_reflected = torch.matmul(R, (X - point).T).T + point
 

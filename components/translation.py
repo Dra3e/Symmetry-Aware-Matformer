@@ -24,7 +24,7 @@ def translate_crystal(A, X, L, coefficients):
             raise ValueError("X-matrix is not Nx3")
         if L.shape != (3, 3):
             raise ValueError("Lattice matrix L must be 3x3")
-        if len(coefficients) != 3 or not coefficients.dtype.is_floating_point:
+        if len(coefficients) != 3 or torch.is_floating_point(coefficients):
             raise ValueError("Translation coefficients must be a 3-element integer tensor")
     except AttributeError:
         raise ValueError("Invalid Input")

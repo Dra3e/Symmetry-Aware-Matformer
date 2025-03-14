@@ -42,6 +42,7 @@ class Crystal:
                     self.A, self.X, self.L, translation_tensor
                 )
             augmentations.append(augmented_crystal)
+            # print(f"Translation: {translation}, Augmentations: {len(augmentations)}")
 
         # Apply rotations
         for axis in axes:
@@ -51,6 +52,7 @@ class Crystal:
                     self.A, self.X, self.L, axis.V, angle
                 )
                 augmentations.append(augmented_crystal)
+                # print(f"Rotation: Axis {axis.V}, Angle {angle}, Augmentations: {len(augmentations)}")
 
         # Apply reflections
         for plane in planes:
@@ -59,12 +61,14 @@ class Crystal:
                 self.A, self.X, self.L, plane.N
             )
             augmentations.append(augmented_crystal)
+            # print(f"Reflection: Plane {plane.N}, Augmentations: {len(augmentations)}")
 
         # Apply combinations of transformations
+
+        # Translation + Rotation
         for translation in [None, [1, 0, 0], [0, 1, 0], [0, 0, 1]]:
             for axis in axes:
                 for angle in [90, 180, 270]:
-                    # Translation + Rotation
                     augmented_crystal = Crystal(self.A, self.X, self.L)
                     if translation is not None:
                         translation_tensor = torch.tensor(translation, dtype=torch.int32)
@@ -75,31 +79,42 @@ class Crystal:
                         augmented_crystal.A, augmented_crystal.X, augmented_crystal.L, axis.V, angle
                     )
                     augmentations.append(augmented_crystal)
+                    # print(f"Translation + Rotation: {translation}, Axis {axis.V}, Angle {angle}, Augmentations: {len(augmentations)}")
+        
+        # Translation + Reflection
+        for translation in [None, [1, 0, 0], [0, 1, 0], [0, 0, 1]]:
+            for plane in planes:
+                augmented_crystal = Crystal(self.A, self.X, self.L)
+                if translation is not None:
+                    translation_tensor = torch.tensor(translation, dtype=torch.int32)
+                    augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = translate_crystal(
+                        self.A, self.X, self.L, translation_tensor
+                    )
+                augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = reflect_crystal(
+                    augmented_crystal.A, augmented_crystal.X, augmented_crystal.L, plane.N
+                )
+                augmentations.append(augmented_crystal)
+                # print(f"Translation + Reflection: {translation}, Plane {plane.N}, Augmentations: {len(augmentations)}")
+        
+        # Rotation + Reflection
+        for axis in axes:
+            for angle in [90, 180, 270]:
+                for plane in planes:
+                    augmented_crystal = Crystal(self.A, self.X, self.L)
+                    augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = rotate_crystal(
+                        self.A, self.X, self.L, axis.V, angle
+                    )
+                    augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = reflect_crystal(
+                        augmented_crystal.A, augmented_crystal.X, augmented_crystal.L, plane.N
+                    )
+                    augmentations.append(augmented_crystal)
+                    # print(f"Rotation + Reflection: Axis {axis.V}, Angle {angle}, Plane {plane.N}, Augmentations: {len(augmentations)}")
 
+        # Translation + Rotation + Reflection
+        for translation in [None, [1, 0, 0], [0, 1, 0], [0, 0, 1]]: 
+            for axis in axes:
+                for angle in [90, 180, 270]:
                     for plane in planes:
-                        # Translation + Reflection
-                        augmented_crystal = Crystal(self.A, self.X, self.L)
-                        if translation is not None:
-                            translation_tensor = torch.tensor(translation, dtype=torch.int32)
-                            augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = translate_crystal(
-                                self.A, self.X, self.L, translation_tensor
-                            )
-                        augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = reflect_crystal(
-                            augmented_crystal.A, augmented_crystal.X, augmented_crystal.L, plane.N
-                        )
-                        augmentations.append(augmented_crystal)
-
-                        # Rotation + Reflection
-                        augmented_crystal = Crystal(self.A, self.X, self.L)
-                        augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = rotate_crystal(
-                            self.A, self.X, self.L, axis.V, angle
-                        )
-                        augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = reflect_crystal(
-                            augmented_crystal.A, augmented_crystal.X, augmented_crystal.L, plane.N
-                        )
-                        augmentations.append(augmented_crystal)
-
-                        # Translation + Rotation + Reflection
                         augmented_crystal = Crystal(self.A, self.X, self.L)
                         if translation is not None:
                             translation_tensor = torch.tensor(translation, dtype=torch.int32)
@@ -113,16 +128,10 @@ class Crystal:
                             augmented_crystal.A, augmented_crystal.X, augmented_crystal.L, plane.N
                         )
                         augmentations.append(augmented_crystal)
+                        # print(f"Translation + Rotation + Reflection: {translation}, Axis {axis.V}, Angle {angle}, Plane {plane.N}, Augmentations: {len(augmentations)}")
 
         return augmentations
 
-    # # Print augmentations
-    # for aug in augmentations:
-    #     print(f"A: {aug.A}, X: {aug.X}, L: {aug.L}")
-
-    #for name, aug in augmentations:
-    #    print(f"{name}: A: {aug.A}, X: {aug.X}, L: {aug.L}")
-    
 class Graph:
     def __init__(self, crystal, cutoff=3.0):
         self.crystal = crystal  # Store the crystal object
@@ -138,11 +147,11 @@ class Graph:
         - cutoff (float): Maximum bond distance to consider for edges.
 
         Returns:
-        - edge_distance (torch.Tensor): Tensor of shape (num_edges,) containing edge distances.
+        - edge_distance (torch.Tensor): Tensor of shape (num_nodes, num_nodes) containing edge distances.
         """
         A, X, L = self.crystal.A, self.crystal.X, self.crystal.L
         num_nodes = X.shape[0]
-        distances = []
+        edge_distance = torch.full((num_nodes, num_nodes), float('inf'))
 
         # Translation vectors for adjacent unit cells
         translation_vectors = torch.tensor([
@@ -163,9 +172,8 @@ class Graph:
             for j in range(len(extended_X)):
                 distance = torch.norm(X[i] - extended_X[j])
                 if distance <= cutoff:
-                    distances.append(distance)
+                    edge_distance[i, j % num_nodes] = distance
 
-        edge_distance = torch.tensor(distances, dtype=torch.float32)
         return edge_distance
 
     @staticmethod
@@ -272,3 +280,58 @@ if __name__ == "__main__":
     # Apply augmentations
     augmentations = crystal.apply_augmentations(axes, planes)
     print(f"Number of augmentations: {len(augmentations)}")
+
+    # Create graphs for each augmented crystal
+    graphs = Graph.create_batch(augmentations)
+    print(f"Number of graphs created: {len(graphs)}")
+
+    # Stitch all graphs together
+    stitched_graph = Graph.stitch_graphs(graphs)
+    print("Stitched Graph:")
+    print("Nodes:", stitched_graph.nodes)
+    print("Edges:", stitched_graph.edges)
+
+    # Test the new functions
+    crystals = [crystal]  # List of crystals to test with
+
+    # Join valid augmented crystal graphs
+    valid_stitched_graph = join_valid_augmented_crystal_graphs(crystals, axes, planes)
+    print("Valid Stitched Graph:")
+    print("Nodes:", valid_stitched_graph.nodes)
+    print("Edges:", valid_stitched_graph.edges)
+
+    # Create invalid augmented crystal graphs
+    invalid_graphs = create_invalid_augmented_crystal_graphs(crystals, axes, planes)
+    print("\nInvalid Graphs:")
+    for i, graph in enumerate(invalid_graphs):
+        print(f"Invalid Graph {i+1}:")
+        print("Nodes:", graph.nodes)
+        print("Edges:", graph.edges)
+
+    # Output all graphs
+    output_all_graphs(valid_stitched_graph, invalid_graphs)
+
+# if __name__ == "__main__":
+#     # Define sample data
+#     A = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=torch.float32)
+#     X = torch.tensor([[0, 0, 0], [1, 1, 1], [2, 2, 2]], dtype=torch.float32)
+#     L = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=torch.float32)
+#     crystal = Crystal(A, X, L)
+
+#     # Define axes and planes
+#     axes = [Axis([1, 0, 0], 90), Axis([0, 1, 0], 90), Axis([0, 0, 1], 90)]
+#     planes = [Plane([1, 0, 0]), Plane([0, 1, 0]), Plane([0, 0, 1])]
+
+#     # Apply augmentations
+#     augmentations = crystal.apply_augmentations(axes, planes)
+#     print(f"Number of augmentations: {len(augmentations)}")
+
+#     # Create graphs for each augmented crystal
+#     graphs = Graph.create_batch(augmentations)
+#     print(f"Number of graphs created: {len(graphs)}")
+
+#     # Stitch all graphs together
+#     stitched_graph = Graph.stitch_graphs(graphs)
+#     print("Stitched Graph:")
+#     print("Nodes:", stitched_graph.nodes)
+#     print("Edges:", stitched_graph.edges)

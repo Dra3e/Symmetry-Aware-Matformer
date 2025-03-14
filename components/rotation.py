@@ -17,7 +17,7 @@ def rotate_crystal(A, X, L, axis, angle_degrees):
     - L_rotated: Same as L.
     """
     angle = torch.deg2rad(torch.tensor(angle_degrees, dtype=torch.float32))  # Convert degrees to radians
-    axis = torch.tensor(axis, dtype=torch.float32)
+    axis = axis.clone().detach().float()
     axis = axis / torch.norm(axis)  # Normalize the rotation axis
     
     # Rodrigues' rotation formula
