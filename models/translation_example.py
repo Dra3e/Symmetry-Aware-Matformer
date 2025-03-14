@@ -1,5 +1,5 @@
 import numpy as np
-from components.translation import TranslateRand
+from components.translation import translate_crystal
 
 #To run write "python -m models.translation_example"
 
@@ -21,7 +21,7 @@ if __name__ == "__main__":
         [0.0, 5.0, 0.0],
         [0.0, 0.0, 5.0]
     ])
-    A_translated, X_translated, L_translated = TranslateRand(A, X, L)
+    A_translated, X_translated, L_translated = translate_crystal(A, X, L)
 
     print("Translated Matrix:")
     print(X_translated)

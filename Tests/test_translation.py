@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 
-from components.translation import TranslateRand
+from components.translation import translate_crystal
 
 # Assuming TranslateRand function is defined in the same file or imported from another module
 
@@ -14,7 +14,7 @@ class TestTranslateRand(unittest.TestCase):
         L = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])  # Identity matrix for lattice
         coefficients = np.array([1, 2, 3])  # Translation coefficients
 
-        A_translated, X_translated, L_translated = TranslateRand(A, X, L, coefficients)
+        A_translated, X_translated, L_translated = translate_crystal(A, X, L, coefficients)
 
         # Verify that A and L remain unchanged
         np.testing.assert_array_equal(A, A_translated)
@@ -33,7 +33,7 @@ class TestTranslateRand(unittest.TestCase):
         coefficients = np.array([1, 2, 3])
 
         with self.assertRaises(ValueError) as context:
-            TranslateRand(A, X, L, coefficients)
+            translate_crystal(A, X, L, coefficients)
         self.assertEqual(str(context.exception), "X-matrix is not Nx3")
 
     def test_invalid_shape_L(self):
@@ -44,7 +44,7 @@ class TestTranslateRand(unittest.TestCase):
         coefficients = np.array([1, 2, 3])
 
         with self.assertRaises(ValueError) as context:
-            TranslateRand(A, X, L, coefficients)
+            translate_crystal(A, X, L, coefficients)
         self.assertEqual(str(context.exception), "Lattice matrix L must be 3x3")
 
     def test_invalid_coefficients_length(self):
@@ -55,7 +55,7 @@ class TestTranslateRand(unittest.TestCase):
         coefficients = np.array([1, 2])  # Invalid length
 
         with self.assertRaises(ValueError) as context:
-            TranslateRand(A, X, L, coefficients)
+            translate_crystal(A, X, L, coefficients)
         self.assertEqual(str(context.exception), "Translation coefficients must be a 3-element integer array")
 
     def test_invalid_coefficients_type(self):
@@ -66,7 +66,7 @@ class TestTranslateRand(unittest.TestCase):
         coefficients = np.array([1.0, 2.0, 3.0])  # Must be integers
 
         with self.assertRaises(ValueError) as context:
-            TranslateRand(A, X, L, coefficients)
+            translate_crystal(A, X, L, coefficients)
         self.assertEqual(str(context.exception), "Translation coefficients must be a 3-element integer array")
 
     def test_invalid_input_type(self):
@@ -77,7 +77,7 @@ class TestTranslateRand(unittest.TestCase):
         coefficients = np.array([1, 2, 3])
 
         with self.assertRaises(ValueError) as context:
-            TranslateRand(A, X, L, coefficients)
+            translate_crystal(A, X, L, coefficients)
         self.assertEqual(str(context.exception), "A can't be none")
 
 if __name__ == '__main__':

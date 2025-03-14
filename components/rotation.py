@@ -1,36 +1,36 @@
-import numpy as np
+import torch
 
-def rotate_3d_object(A, X, L, axis, angle_degrees):
+def rotate_crystal(A, X, L, axis, angle_degrees):
     """
     Rotates a set of 3D points and an optional lattice around a given axis by a specified angle in degrees.
     
     Parameters:
-    - A: numpy array of shape (n, f) containing atomic features (remains unchanged).
-    - X (np.ndarray): An (N, 3) array of 3D points.
-    - L (np.ndarray, optional): A (3, 3) lattice matrix to be rotated.
-    - axis (np.ndarray): A 3D vector representing the rotation axis.
-    - angle_degrees (float): The rotation angle in degrees.
+    - A: Tensor of shape (n, f) containing atomic features (remains unchanged).
+    - X: Tensor of shape (n, 3) containing atomic coordinates.
+    - L: Tensor of shape (3, 3) representing the lattice vectors.
+    - axis: Tensor of length 3, the rotation axis.
+    - angle_degrees: The rotation angle in degrees.
     
     Returns:
-    - A_rotated: same as A.
-    - X_rotated: numpy array of shape (n, 3) with rotated atomic coordinates.
-    - L_rotated: numpy array of shape (3, 3) with the rotated lattice.
+    - A_rotated: Same as A.
+    - X_rotated: Tensor of shape (n, 3) with rotated atomic coordinates.
+    - L_rotated: Same as L.
     """
-    angle = np.deg2rad(angle_degrees)  # Convert degrees to radians
-    axis = np.asarray(axis)
-    axis = axis / np.linalg.norm(axis)  # Normalize the rotation axis
+    angle = torch.deg2rad(torch.tensor(angle_degrees, dtype=torch.float32))  # Convert degrees to radians
+    axis = torch.tensor(axis, dtype=torch.float32)
+    axis = axis / torch.norm(axis)  # Normalize the rotation axis
     
     # Rodrigues' rotation formula
-    K = np.array([
+    K = torch.tensor([
         [0, -axis[2], axis[1]],
         [axis[2], 0, -axis[0]],
         [-axis[1], axis[0], 0]
-    ])
+    ], dtype=torch.float32)
     
-    R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.dot(K, K)
+    R = torch.eye(3) + torch.sin(angle) * K + (1 - torch.cos(angle)) * torch.matmul(K, K)
     
     # Apply rotation
-    X_rotated = np.dot(X, R.T)
-    X_rotated = np.round(X_rotated, decimals=6)  # Round for cleaner output
+    X_rotated = torch.matmul(X, R.T)
+    X_rotated = torch.round(X_rotated * 1e6) / 1e6  # Round for cleaner output
     
     return A, X_rotated, L
