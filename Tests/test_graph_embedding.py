@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 import unittest
-from models.steps.crystal_graph import CrystalGraph, CGCNN, EdgeTransformation, RBF
+from models.scripts.graph_embedding import CGCNN, EdgeTransformation, RBF
+from models.components.crystal_graph import CrystalGraph
 
-class TestCrystalGraph(unittest.TestCase):
+class Test_CrystalGraph(unittest.TestCase):
 
     def setUp(self):
         """Initialize a CrystalGraph instance with predefined parameters."""
@@ -128,7 +129,7 @@ class TestCrystalGraph(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.graph(torch.rand((3, 3, 3)), torch.rand((3, 3)))  # Wrong shapes
 
-class TestCGCNN(unittest.TestCase):
+class Test_CGCNN(unittest.TestCase):
 
     def setUp(self):
         """Initialize a CGCNN instance with predefined parameters."""
@@ -188,7 +189,7 @@ class TestCGCNN(unittest.TestCase):
         self.assertIsNotNone(A.grad)
         self.assertFalse(torch.isnan(A.grad).any())
 
-class TestEdgeTransformation(unittest.TestCase):
+class Test_EdgeTransformation(unittest.TestCase):
 
     def setUp(self):
         """Initialize an EdgeTransformation instance."""
@@ -256,7 +257,7 @@ class TestEdgeTransformation(unittest.TestCase):
         self.assertIsNotNone(D.grad)
         self.assertFalse(torch.isnan(D.grad).any())
 
-class TestRBF(unittest.TestCase):
+class Test_RBF(unittest.TestCase):
 
     def setUp(self):
         """Initialize an RBF instance with predefined parameters."""

@@ -1,69 +1,85 @@
-import numpy as np
+import torch
 import unittest
-from components.rotation import rotate_crystal  # Replace with the actual module name
+from models.augmentations.rotation import Axis
 
-class TestRotate3DObject(unittest.TestCase):
-    def test_identity_rotation(self): # Tests with no rotation, which should result in the matrix being unchanged
-        A = np.array([[1, 2], [3, 4]])  # Example atomic features (remains unchanged)
-        X = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])  # Unit vectors
-        L = np.eye(3)  # Identity matrix for lattice
-        axis = [0, 0, 1]
-        angle = 0  # No rotation
-        A_rot, X_rot, L_rot = rotate_crystal(A, X, L, axis, angle)
-        np.testing.assert_array_equal(X, X_rot)
-        np.testing.assert_array_equal(L, L_rot)
+class Test_Rotation(unittest.TestCase):
+    def test_identity_rotation(self):
+        """Tests with no rotation, which should result in the matrix being unchanged."""
+        A = torch.tensor([[1, 2], [3, 4]], dtype=torch.float32)  # Example atomic features (remains unchanged)
+        X = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=torch.float32)  # Unit vectors
+        L = torch.eye(3, dtype=torch.float32)  # Identity matrix for lattice
+        axis_vector = torch.tensor([0, 0, 1], dtype=torch.float32)
+        rotation_degrees = 0  # No rotation
+        axis = Axis(axis_vector, rotation_degrees)
+        A_rot, X_rot, L_rot = axis.rotate_crystal(A, X, L)
+        torch.testing.assert_close(X, X_rot, rtol=1e-6, atol=1e-6)
+        torch.testing.assert_close(L, L_rot, rtol=1e-6, atol=1e-6)
     
-    def test_full_rotation(self): # Tests a full 360-degree rotation, which should return the original matrix
-        X = np.array([[1, 0, 0]])
-        L = np.eye(3)
-        axis = [0, 0, 1]
-        angle = 360 # Full rotation
-        _, X_rot, L_rot = rotate_crystal(None, X, L, axis, angle) 
-        np.testing.assert_array_almost_equal(X, X_rot, decimal=6)
-        np.testing.assert_array_almost_equal(L, L_rot, decimal=6)
+    def test_full_rotation(self):
+        """Tests a full 360-degree rotation, which should return the original matrix."""
+        X = torch.tensor([[1, 0, 0]], dtype=torch.float32)
+        L = torch.eye(3, dtype=torch.float32)
+        axis_vector = torch.tensor([0, 0, 1], dtype=torch.float32)
+        rotation_degrees = 360  # Full rotation
+        axis = Axis(axis_vector, rotation_degrees)
+        _, X_rot, L_rot = axis.rotate_crystal(None, X, L)
+        torch.testing.assert_close(X, X_rot, rtol=1e-6, atol=1e-6)
+        torch.testing.assert_close(L, L_rot, rtol=1e-6, atol=1e-6)
     
-    def test_rotation_90_degrees(self): # Tests a 90-degree rotation around the z-axis to check correctness
-        X = np.array([[1, 0, 0]])
-        L = np.eye(3)
-        axis = [0, 0, 1]
-        angle = 90
-        _, X_rot, _ = rotate_crystal(None, X, L, axis, angle)
-        expected_X_rot = np.array([[0, 1, 0]])
-        np.testing.assert_array_almost_equal(X_rot, expected_X_rot, decimal=6)
+    def test_rotation_90_degrees(self):
+        """Tests a 90-degree rotation around the z-axis to check correctness."""
+        X = torch.tensor([[1, 0, 0]], dtype=torch.float32)
+        L = torch.eye(3, dtype=torch.float32)
+        axis_vector = torch.tensor([0, 0, 1], dtype=torch.float32)
+        rotation_degrees = 90
+        axis = Axis(axis_vector, rotation_degrees)
+        _, X_rot, _ = axis.rotate_crystal(None, X, L)
+        expected_X_rot = torch.tensor([[0, 1, 0]], dtype=torch.float32)
+        torch.testing.assert_close(X_rot, expected_X_rot, rtol=1e-6, atol=1e-6)
     
-    def test_rotation_around_non_orthogonal_axis(self): # Tests rotation around a non-orthogonal axis to verify proper handling
-        X = np.array([[1, 1, 1]])
-        L = np.eye(3)
-        axis = [1, 1, 1]
-        angle = 120
-        _, X_rot, _ = rotate_crystal(None, X, L, axis, angle)
-        expected_X_rot = np.array([[1, 1, 1]])  # Should remain the same as it's along the axis
-        np.testing.assert_array_almost_equal(X_rot, expected_X_rot, decimal=6)
+    def test_rotation_around_non_orthogonal_axis(self):
+        """Tests rotation around a non-orthogonal axis to verify proper handling."""
+        X = torch.tensor([[1, 1, 1]], dtype=torch.float32)
+        L = torch.eye(3, dtype=torch.float32)
+        axis_vector = torch.tensor([1, 1, 1], dtype=torch.float32)
+        rotation_degrees = 120
+        axis = Axis(axis_vector, rotation_degrees)
+        _, X_rot, _ = axis.rotate_crystal(None, X, L)
+        expected_X_rot = torch.tensor([[1, 1, 1]], dtype=torch.float32)  # Should remain the same as it's along the axis
+        torch.testing.assert_close(X_rot, expected_X_rot, rtol=1e-6, atol=1e-6)
     
-    def test_distance_preservation(self): # Ensures distances between points are preserved after rotation
-        X = np.array([[1, 0, 0], [0, 1, 0]])
-        L = np.eye(3)
-        axis = [0, 0, 1]
-        angle = 45
-        _, X_rot, _ = rotate_crystal(None, X, L, axis, angle)
-        dist_before = np.linalg.norm(X[0] - X[1])
-        dist_after = np.linalg.norm(X_rot[0] - X_rot[1])
-        self.assertTrue(np.isclose(dist_before, dist_after, atol=1e-6))
+    def test_distance_preservation(self):
+        """Ensures distances between points are preserved after rotation."""
+        X = torch.tensor([[1, 0, 0], [0, 1, 0]], dtype=torch.float32)
+        L = torch.eye(3, dtype=torch.float32)
+        axis_vector = torch.tensor([0, 0, 1], dtype=torch.float32)
+        rotation_degrees = 45
+        axis = Axis(axis_vector, rotation_degrees)
+        _, X_rot, _ = axis.rotate_crystal(None, X, L)
+        dist_before = torch.norm(X[0] - X[1])
+        dist_after = torch.norm(X_rot[0] - X_rot[1])
+        self.assertTrue(torch.isclose(dist_before, dist_after, atol=1e-6))
     
-    def test_empty_input(self): # Tests rotation on an empty input to ensure graceful handling
-        X = np.array([]).reshape(0, 3)
-        L = np.eye(3)
-        axis = [0, 0, 1]
-        angle = 90
-        _, X_rot, _ = rotate_crystal(None, X, L, axis, angle)
+    def test_empty_input(self):
+        """Tests rotation on an empty input to ensure graceful handling."""
+        X = torch.tensor([]).reshape(0, 3)
+        L = torch.eye(3, dtype=torch.float32)
+        axis_vector = torch.tensor([0, 0, 1], dtype=torch.float32)
+        rotation_degrees = 90
+        axis = Axis(axis_vector, rotation_degrees)
+        _, X_rot, _ = axis.rotate_crystal(None, X, L)
         self.assertEqual(X_rot.shape, (0, 3))  # Should return an empty array
     
-    def test_single_point_rotation(self): # Tests rotating a single point to verify correctness
-        X = np.array([[1, 2, 3]])
-        L = np.eye(3)
-        axis = [0, 1, 0]
-        angle = 180
-        _, X_rot, _ = rotate_crystal(None, X, L, axis, angle)
-        expected_X_rot = np.array([[-1, 2, -3]])
-        np.testing.assert_array_almost_equal(X_rot, expected_X_rot, decimal=6)
-        
+    def test_single_point_rotation(self):
+        """Tests rotating a single point to verify correctness."""
+        X = torch.tensor([[1, 2, 3]], dtype=torch.float32)
+        L = torch.eye(3, dtype=torch.float32)
+        axis_vector = torch.tensor([0, 1, 0], dtype=torch.float32)
+        rotation_degrees = 180
+        axis = Axis(axis_vector, rotation_degrees)
+        _, X_rot, _ = axis.rotate_crystal(None, X, L)
+        expected_X_rot = torch.tensor([[-1, 2, -3]], dtype=torch.float32)
+        torch.testing.assert_close(X_rot, expected_X_rot, rtol=1e-6, atol=1e-6)
+
+if __name__ == '__main__':
+    unittest.main()

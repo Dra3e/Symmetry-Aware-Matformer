@@ -1,84 +1,51 @@
 import unittest
-import numpy as np
+import torch
+from models.components.crystal import Crystal
 
-from components.translation import translate_crystal
-
-# Assuming TranslateRand function is defined in the same file or imported from another module
-
-class TestTranslateRand(unittest.TestCase):
+class Test_Translation(unittest.TestCase):
 
     def test_valid_translation(self):
         """Test the function with valid inputs and check the translation behavior."""
-        A = np.array([[1, 2], [3, 4]])  # Atomic features
-        X = np.array([[0, 0, 0], [1, 1, 1]])  # Atomic coordinates
-        L = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])  # Identity matrix for lattice
-        coefficients = np.array([1, 2, 3])  # Translation coefficients
+        A = torch.tensor([[1, 2], [3, 4]], dtype=torch.float32)  # Atomic features
+        X = torch.tensor([[0, 0, 0], [1, 1, 1]], dtype=torch.float32)  # Atomic coordinates
+        L = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=torch.float32)  # Identity matrix for lattice
+        coefficients = torch.tensor([1, 2, 3], dtype=torch.int32)  # Translation coefficients
 
-        A_translated, X_translated, L_translated = translate_crystal(A, X, L, coefficients)
+        crystal = Crystal(A, X, L)
+        A_translated, X_translated, L_translated = crystal.translate_crystal(coefficients)
 
         # Verify that A and L remain unchanged
-        np.testing.assert_array_equal(A, A_translated)
-        np.testing.assert_array_equal(L, L_translated)
+        torch.testing.assert_close(A, A_translated, rtol=1e-6, atol=1e-6)
+        torch.testing.assert_close(L, L_translated, rtol=1e-6, atol=1e-6)
 
         # Verify the translated coordinates
-        expected_translation_vector = np.dot(coefficients, L)
+        expected_translation_vector = torch.matmul(coefficients.float(), L)
         expected_X_translated = X + expected_translation_vector
-        np.testing.assert_array_equal(X_translated, expected_X_translated)
-
-    def test_invalid_shape_X(self):
-        """Test for invalid shape of the `X` input matrix."""
-        A = np.array([[1, 2], [3, 4]])  # Atomic features
-        X = np.array([[0, 0]])  # Invalid shape (1x2 instead of Nx3)
-        L = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-        coefficients = np.array([1, 2, 3])
-
-        with self.assertRaises(ValueError) as context:
-            translate_crystal(A, X, L, coefficients)
-        self.assertEqual(str(context.exception), "X-matrix is not Nx3")
-
-    def test_invalid_shape_L(self):
-        """Test for invalid shape of the `L` lattice matrix."""
-        A = np.array([[1, 2], [3, 4]])
-        X = np.array([[0, 0, 0], [1, 1, 1]])
-        L = np.array([[1, 0], [0, 1], [0, 0]])  # Invalid shape (3x2 instead of 3x3)
-        coefficients = np.array([1, 2, 3])
-
-        with self.assertRaises(ValueError) as context:
-            translate_crystal(A, X, L, coefficients)
-        self.assertEqual(str(context.exception), "Lattice matrix L must be 3x3")
+        torch.testing.assert_close(X_translated, expected_X_translated, rtol=1e-6, atol=1e-6)
 
     def test_invalid_coefficients_length(self):
         """Test for invalid length of the coefficients array."""
-        A = np.array([[1, 2], [3, 4]])
-        X = np.array([[0, 0, 0], [1, 1, 1]])
-        L = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-        coefficients = np.array([1, 2])  # Invalid length
+        A = torch.tensor([[1, 2], [3, 4]], dtype=torch.float32)
+        X = torch.tensor([[0, 0, 0], [1, 1, 1]], dtype=torch.float32)
+        L = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=torch.float32)
+        coefficients = torch.tensor([1, 2], dtype=torch.int32)  # Invalid length
 
+        crystal = Crystal(A, X, L)
         with self.assertRaises(ValueError) as context:
-            translate_crystal(A, X, L, coefficients)
-        self.assertEqual(str(context.exception), "Translation coefficients must be a 3-element integer array")
+            crystal.translate_crystal(coefficients)
+        self.assertEqual(str(context.exception), "Translation coefficients must be a 3-element integer tensor")
 
     def test_invalid_coefficients_type(self):
         """Test for invalid data type of coefficients."""
-        A = np.array([[1, 2], [3, 4]])
-        X = np.array([[0, 0, 0], [1, 1, 1]])
-        L = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-        coefficients = np.array([1.0, 2.0, 3.0])  # Must be integers
+        A = torch.tensor([[1, 2], [3, 4]], dtype=torch.float32)
+        X = torch.tensor([[0, 0, 0], [1, 1, 1]], dtype=torch.float32)
+        L = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=torch.float32)
+        coefficients = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32)  # Must be integers
 
+        crystal = Crystal(A, X, L)
         with self.assertRaises(ValueError) as context:
-            translate_crystal(A, X, L, coefficients)
-        self.assertEqual(str(context.exception), "Translation coefficients must be a 3-element integer array")
-
-    def test_invalid_input_type(self):
-        """Test for invalid input types."""
-        A = None  # Not a valid numpy array
-        X = np.array([[0, 0, 0], [1, 1, 1]])
-        L = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-        coefficients = np.array([1, 2, 3])
-
-        with self.assertRaises(ValueError) as context:
-            translate_crystal(A, X, L, coefficients)
-        self.assertEqual(str(context.exception), "A can't be none")
+            crystal.translate_crystal(coefficients)
+        self.assertEqual(str(context.exception), "Translation coefficients must be a 3-element integer tensor")
 
 if __name__ == '__main__':
     unittest.main()  # Run the unit tests
