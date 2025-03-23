@@ -29,28 +29,26 @@ class CrystalGraph(nn.Module):
             CrystalGraph instance.
         """
         nodes = crystal.A
-        cutoff = config
-
         num_nodes = nodes.shape[0]
-        edge_distance = torch.full((num_nodes, num_nodes), float('inf'))
-        translation_offsets = torch.tensor([[0, 0, 0],
-                                            [1, 0, 0],
-                                            [-1, 0, 0],
-                                            [0, 1, 0],
-                                            [0, -1, 0],
-                                            [0, 0, 1],
-                                            [0, 0, -1],], dtype=torch.float32)
+        edges = []
+        translation_offsets = torch.tensor([
+            [0, 0, 0],
+            [1, 0, 0], [-1, 0, 0],
+            [0, 1, 0], [0, -1, 0],
+            [0, 0, 1], [0, 0, -1]
+        ], dtype=torch.float32)
 
         for i in range(num_nodes):
-            for j in range(i + 1, num_nodes):
+            for j in range(i, num_nodes):  # include i==j to allow self-loops if needed
                 for t in translation_offsets:
                     translated = crystal.X[j] + t @ crystal.L
                     distance = torch.norm(crystal.X[i] - translated)
-                    if distance <= cutoff and distance < edge_distance[i, j]:
-                        edge_distance[i, j] = distance
-                        edge_distance[j, i] = distance
+                    if distance <= config:
+                        edges.append([i, j, distance.item(), 0])
+                        if i != j:
+                            edges.append([j, i, distance.item(), 0])  # undirected
 
-        return cls(nodes, edge_distance, config)
+        return cls(nodes=nodes, edges=edges, config=config)
     
     @classmethod
     def init_from_augmented_crystal(cls, original_crystal, augmented_crystals, config=3.0):
@@ -58,26 +56,17 @@ class CrystalGraph(nn.Module):
         Initializes a CrystalGraph from an original crystal and a list of its augmented versions.
         Computes standard edges via init_from_crystal and adds displacement as self-loop edges.
         """
-        # Step 1: Get normal edge matrix from the original
         base_graph = cls.init_from_crystal(original_crystal, config)
         nodes = base_graph.nodes
-        edge_distance = base_graph.edges.clone()  # clone to avoid modifying the original
-
+        edges = base_graph.edges.copy()
         num_nodes = nodes.shape[0]
 
-        # Step 2: Compute average displacement for each atom
-        displacements = torch.zeros(num_nodes)
         for aug in augmented_crystals:
-            displacements.append(torch.norm(aug.X - original_crystal.X, dim=1).unsqueeze(0))
-        displacement = torch.cat(displacements, dim=0)  # shape: (n_augments, num_nodes)
-        # mean_disp = displacement.mean(dim=0)
-        # var_disp = displacement.var(dim=0)
+            displacements = torch.norm(aug.X - original_crystal.X, dim=1)
+            for i in range(num_nodes):
+                edges.append([i, i, displacements[i].item(), 1])  # augmented/self-edge
 
-        # Step 3: Insert displacement as diagonal (self-loop) edges
-        for i in range(num_nodes):
-            edge_distance[i, i] = displacement[i]
-
-        return cls(nodes=nodes, edges=edge_distance, config=config)
+        return cls(nodes=nodes, edges=edges, config=config)
 
 
 
@@ -95,7 +84,7 @@ class CrystalGraph(nn.Module):
             e_h (torch.Tensor): Edge feature matrix.
         """
         if self.nodes is None or self.edges is None:
-            raise ValueError("Graph has not been initialized. Use init_from_crystal() first.")
+            raise ValueError("Graph has not been initialized.")
 
         atom_embedding = CGCNN(atom_feature_dim, hidden_dim)
         edge_transform = EdgeTransformation(num_rbf_kernels, hidden_dim)

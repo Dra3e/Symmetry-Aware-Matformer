@@ -50,25 +50,29 @@ class EdgeTransformation(nn.Module):
             hidden_dim (int): Dimension of the output edge embeddings (h).
         """
         super().__init__()
-        self.linear = nn.Linear(num_rbf_kernels, hidden_dim)  # Linear transformation
+        self.linear = nn.Linear(num_rbf_kernels + 1, hidden_dim)  # Linear transformation (+1 for edge type)
         self.rbf_expansion = RBF(num_rbf_kernels)   # RBF expansion
         self.activation = nn.Softplus()  # Ensures positive outputs for stability
 
-    def forward(self, D):
+    def forward(self, edges):
         """
-        Applies a linear transformation and Softplus activation to RBF-expanded distance features.
-            e^h_ij = Softplus(LN(RBF(d_ij)))
-
         Args:
-            D (torch.Tensor): Distance matrix of shape (N, N), where each d_ij represents
-            the Euclidean distance between atoms i and j.
-                - N: Number of atoms.
-
+            edges (list of [i, j, distance, type]):
+                - i: source node index
+                - j: target node index
+                - distance: Euclidean distance (float)
+                - type: 0 (physical) or 1 (augmented)
+        
         Returns:
-            e^h_ij torch.Tensor: Transformed edge embeddings of shape (N, N, hidden_dim).
+            edge_features (Tensor): shape (num_edges, hidden_dim)
         """
-        rbf_features = self.rbf_expansion(D)
-        return self.activation(self.linear(rbf_features))  # Linear transformation + Softplus
+        distances = torch.tensor([e[2] for e in edges]).unsqueeze(-1)
+        types = torch.tensor([e[3] for e in edges]).unsqueeze(-1).float()
+
+        rbf_encoded = self.rbf_expansion(distances)
+        combined = torch.cat([rbf_encoded, types], dim=1)
+
+        return self.activation(self.linear(combined))  # Linear transformation + Softplus
 
 class RBF(nn.Module):
     """
