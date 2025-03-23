@@ -1,7 +1,5 @@
 import torch
 
-
-
 class Crystal:
     def __init__(self, A, X, L):
         # Initialize the crystal with atomic features (A), atomic coordinates (X), and lattice vectors (L)
