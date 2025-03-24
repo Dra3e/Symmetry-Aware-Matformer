@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-def aggregation(input, alpha, V, edges, hidden_dim):
+def aggregation(neighbors, alpha, V, edges, hidden_dim):
     """
     input: Array of inputs
     alpha: Attention weights (n x n matrix)
@@ -17,6 +17,6 @@ def aggregation(input, alpha, V, edges, hidden_dim):
     V_transformed = linear_layer(V)
 
     return sum(
-        sum(alpha * V_transformed for _ in range(len(input)))
+        sum(alpha * V_transformed for _ in range(len(neighbors)))
         for _ in range(len(edges))
     )
