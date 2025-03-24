@@ -1,36 +1,51 @@
-import numpy as np
 import unittest
-from components.translation import TranslateRand
+import torch
+from models.components.crystal import Crystal
 
 class Test_Translation(unittest.TestCase):
-    def test_Translation_CorrectInput(self):
-        A_input = np.array([[1,1],[1,1]])
-        X_input = np.array([[1,1,1],[1,1,1],[1,1,1]])
-        L_input = np.array([[1,0,0],[0,1,0],[0,0,1]])
-        direction = np.array([[1,1,1]])
 
-        A_output,X_output,L_output = TranslateRand(A_input,X_input,L_input,direction)
+    def test_valid_translation(self):
+        """Test the function with valid inputs and check the translation behavior."""
+        A = torch.tensor([[1, 2], [3, 4]], dtype=torch.float32)  # Atomic features
+        X = torch.tensor([[0, 0, 0], [1, 1, 1]], dtype=torch.float32)  # Atomic coordinates
+        L = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=torch.float32)  # Identity matrix for lattice
+        coefficients = torch.tensor([1, 2, 3], dtype=torch.int32)  # Translation coefficients
 
-        self.assertEqual(A_input.shape,A_output.shape)
-        self.assertEqual(X_input.shape,X_output.shape)
-        self.assertEqual(L_input.shape,L_output.shape)
-        self.assertTrue((A_input == A_output).all())
-        self.assertTrue((X_input != X_output).all())
-        self.assertTrue((L_input == L_output).all())
-    
-    def test_Translation_WrongMatrixSize(self):
-        A_input = np.array([[1,1],[1,1]])
-        X_input = np.array([[1,1],[1,1],[1,1]])
-        L_input = np.array([[1,0,0],[0,1,0],[0,0,1]])
+        crystal = Crystal(A, X, L)
+        A_translated, X_translated, L_translated = crystal.translate_crystal(coefficients)
 
-        with self.assertRaises(Exception):
-            A_output,X_output,L_output = TranslateRand(A_input,X_input,L_input)
-    
-    def test_Translation_WrongInput(self):
-        A_input = np.array([[1,1],[1,1]])
-        X_input = "fail"
-        L_input = np.array([[1,0,0],[0,1,0],[0,0,1]])
+        # Verify that A and L remain unchanged
+        torch.testing.assert_close(A, A_translated, rtol=1e-6, atol=1e-6)
+        torch.testing.assert_close(L, L_translated, rtol=1e-6, atol=1e-6)
 
-        with self.assertRaises(Exception):
-            A_output,X_output,L_output = TranslateRand("fail")
-            
+        # Verify the translated coordinates
+        expected_translation_vector = torch.matmul(coefficients.float(), L)
+        expected_X_translated = X + expected_translation_vector
+        torch.testing.assert_close(X_translated, expected_X_translated, rtol=1e-6, atol=1e-6)
+
+    def test_invalid_coefficients_length(self):
+        """Test for invalid length of the coefficients array."""
+        A = torch.tensor([[1, 2], [3, 4]], dtype=torch.float32)
+        X = torch.tensor([[0, 0, 0], [1, 1, 1]], dtype=torch.float32)
+        L = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=torch.float32)
+        coefficients = torch.tensor([1, 2], dtype=torch.int32)  # Invalid length
+
+        crystal = Crystal(A, X, L)
+        with self.assertRaises(ValueError) as context:
+            crystal.translate_crystal(coefficients)
+        self.assertEqual(str(context.exception), "Translation coefficients must be a 3-element integer tensor")
+
+    def test_invalid_coefficients_type(self):
+        """Test for invalid data type of coefficients."""
+        A = torch.tensor([[1, 2], [3, 4]], dtype=torch.float32)
+        X = torch.tensor([[0, 0, 0], [1, 1, 1]], dtype=torch.float32)
+        L = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=torch.float32)
+        coefficients = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32)  # Must be integers
+
+        crystal = Crystal(A, X, L)
+        with self.assertRaises(ValueError) as context:
+            crystal.translate_crystal(coefficients)
+        self.assertEqual(str(context.exception), "Translation coefficients must be a 3-element integer tensor")
+
+if __name__ == '__main__':
+    unittest.main()  # Run the unit tests
