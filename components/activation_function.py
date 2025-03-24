@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class ActivationFunction(nn.Module):
-    def __init__(self, fi, fj, eij, M_sym_dim):
+    def __init__(self, fi, fj, eij):
         super(ActivationFunction, self).__init__()
         self.query = nn.Linear(fi, fi)
         self.key_i = nn.Linear(fi, fi)
