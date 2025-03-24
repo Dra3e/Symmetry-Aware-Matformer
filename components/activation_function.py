@@ -10,25 +10,20 @@ class ActivationFunction(nn.Module):
         self.edge = nn.Linear(eij, eij)
 
         self.layer_norm = nn.LayerNorm(fi * 3)  # 3 because we concatenate over three elements with fi dimensions
-        self.symmetry = nn.Linear(M_sym_dim, M_sym_dim, bias=False)
+        self.symmetry = nn.Linear(eij, eij, bias=False)
 
     def forward(self, fi_tensor, fj_tensor, eij_tensor, M_sym, M_val):
-        # Apply linear transformations
         query = self.query(fi_tensor)
         key_i = self.key_i(fi_tensor)
         key_j = self.key_j(fj_tensor)
         edge = self.edge(eij_tensor)
 
-        # Concatenate transformed inputs
         query_C = torch.cat((query, query, query), dim=-1)
         key_C = torch.cat((key_i, key_j, edge), dim=-1)
-
-        # Compute scaled attention weights
         d = key_C.shape[-1]
-        alpha_original = torch.sigmoid(self.layer_norm(torch.mul(query_C, key_C) / d))
 
-        # Apply symmetry transformation and M_valid
-        symmetry = 1 + self.symmetry(M_sym @ eij_tensor)
+        alpha_original = torch.sigmoid(self.layer_norm(torch.mul(query_C, key_C) / d))
+        symmetry = 1 + self.symmetry(torch.mul(M_sym,eij_tensor))
         alpha = torch.mul(torch.mul(alpha_original, symmetry), M_val)
 
         return alpha
