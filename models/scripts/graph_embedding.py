@@ -56,7 +56,7 @@ class EdgeTransformation(nn.Module):
 
     def forward(self, edges):
         """
-        Args:
+         Args:
             edges (list of [i, j, distance, type]):
                 - i: source node index
                 - j: target node index
@@ -72,7 +72,24 @@ class EdgeTransformation(nn.Module):
         rbf_encoded = self.rbf_expansion(distances)
         combined = torch.cat([rbf_encoded, types], dim=1)
 
-        return self.activation(self.linear(combined))  # Linear transformation + Softplus
+        return self.activation(self.linear(combined))  # Linear transformation + Softplus 
+    
+    def batch_forward(self, edges):
+        """
+        edges: Tensor of shape (batch_size, num_edges, edge_dim), where edge_dim = (distance, type)
+        """
+        # Assuming `edges` is a tensor with shape (batch_size, num_edges, 4) 
+        # where each edge is [i, j, distance, type]
+        distances = edges[:, :, 2].unsqueeze(-1)  # Shape: (batch_size, num_edges, 1)
+        types = edges[:, :, 3].unsqueeze(-1).float()  # Shape: (batch_size, num_edges, 1)
+
+        # RBF encoding
+        rbf_encoded = self.rbf_expansion(distances)  # Shape: (batch_size, num_edges, num_kernels)
+        combined = torch.cat([rbf_encoded, types], dim=-1)  # Shape: (batch_size, num_edges, num_kernels + 1)
+
+        return self.activation(self.linear(combined))  # Shape: (batch_size, num_edges, hidden_dim)
+
+
 
 class RBF(nn.Module):
     """

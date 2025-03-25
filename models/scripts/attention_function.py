@@ -2,25 +2,25 @@ import torch
 import torch.nn as nn
 
 class AttentionFunction(nn.Module):
-    def __init__(self, f_i, f_j, e_ij):
+    def __init__(self, edge):
         super(AttentionFunction, self).__init__()
-        self.query = nn.Linear(f_i.shape[-1], f_i.shape[-1])
-        self.key_i = nn.Linear(f_i.shape[-1], f_i.shape[-1])
-        self.key_j = nn.Linear(f_j.shape[-1], f_j.shape[-1])
-        self.value_i = nn.Linear(f_i.shape[-1], f_i.shape[-1])
-        self.value_j = nn.Linear(f_j.shape[-1],f_j.shape[-1])
-        self.edge = nn.Linear(e_ij.shape[-1], e_ij.shape[-1])
+        self.query = nn.Linear(edge[0].shape[-1], edge[0].shape[-1])
+        self.key_i = nn.Linear(edge[0].shape[-1], edge[0].shape[-1])
+        self.key_j = nn.Linear(edge[1].shape[-1], edge[1].shape[-1])
+        self.value_i = nn.Linear(edge[0].shape[-1], edge[0].shape[-1])
+        self.value_j = nn.Linear(edge[1].shape[-1],edge[1].shape[-1])
+        self.edge = nn.Linear(edge[2].shape[-1], edge[2].shape[-1])
 
-        self.layer_norm = nn.LayerNorm(f_i.shape[-1] * 3)  # 3 because we concatenate over three elements with f_i dimensions
-        self.symmetry = nn.Linear(e_ij.shape[-1], e_ij.shape[-1], bias=False)
+        self.layer_norm = nn.LayerNorm(edge[0].shape[-1] * 3)  # 3 because we concatenate over three elements with edge[0] dimensions
+        self.symmetry = nn.Linear(edge[2].shape[-1], edge[2].shape[-1], bias=False)
 
-    def forward(self, f_i, f_j, e_ij, M_sym, M_valid):
-        query = self.query(f_i)
-        key_i = self.key_i(f_i)
-        key_j = self.key_j(f_j)
-        value_i = self.value_i(f_i)
-        value_j = self.value_j(f_j)
-        edge = self.edge(e_ij)
+    def forward(self, edge):
+        query = self.query(edge[0])
+        key_i = self.key_i(edge[0])
+        key_j = self.key_j(edge[1])
+        value_i = self.value_i(edge[0])
+        value_j = self.value_j(edge[1])
+        edge = self.edge(edge[2])
 
         query_C = torch.cat((query, query, query), dim=-1)
         key_C = torch.cat((key_i, key_j, edge), dim=-1)
@@ -28,31 +28,31 @@ class AttentionFunction(nn.Module):
         d = key_C.shape[-1]
 
         alpha_original = torch.sigmoid(self.layer_norm(torch.mul(query_C, key_C) / d))
-        symmetry = 1 + self.symmetry(torch.mul(M_sym,e_ij))
-        alpha = torch.mul(torch.mul(alpha_original, symmetry), M_valid)
+        symmetry = 1 + self.symmetry(torch.mul(edge[3],edge[2]))
+        alpha = torch.mul(torch.mul(alpha_original, symmetry), edge[3])
 
         return alpha, value_C
 
 # class AttentionFunction(nn.Module):
-#     def __init__(self, f_i, f_j, e_ij):
+#     def __init__(self, edge[0], edge[1], edge[2]):
 #         super(AttentionFunction, self).__init__()
-#         self.query = nn.Linear(f_i, f_i)
-#         self.key_i = nn.Linear(f_i, f_i)
-#         self.key_j = nn.Linear(f_j, f_j)
-#         self.value_i = nn.Linear(f_i, f_i)
-#         self.value_j = nn.Linear(f_j,f_j)
-#         self.edge = nn.Linear(e_ij, e_ij)
+#         self.query = nn.Linear(edge[0], edge[0])
+#         self.key_i = nn.Linear(edge[0], edge[0])
+#         self.key_j = nn.Linear(edge[1], edge[1])
+#         self.value_i = nn.Linear(edge[0], edge[0])
+#         self.value_j = nn.Linear(edge[1],edge[1])
+#         self.edge = nn.Linear(edge[2], edge[2])
 
-#         self.layer_norm = nn.LayerNorm(f_i * 3)  # 3 because we concatenate over three elements with f_i dimensions
-#         self.symmetry = nn.Linear(e_ij, e_ij, bias=False)
+#         self.layer_norm = nn.LayerNorm(edge[0] * 3)  # 3 because we concatenate over three elements with edge[0] dimensions
+#         self.symmetry = nn.Linear(edge[2], edge[2], bias=False)
 
-#     def forward(self, f_i_tensor, f_j_tensor, e_ij_tensor, M_sym, M_valid):
-#         query = self.query(f_i_tensor)
-#         key_i = self.key_i(f_i_tensor)
-#         key_j = self.key_j(f_j_tensor)
-#         value_i = self.value_i(f_i_tensor)
-#         value_j = self.value_j(f_j_tensor)
-#         edge = self.edge(e_ij_tensor)
+#     def forward(self, edge[0]_tensor, edge[1]_tensor, edge[2]_tensor, edge[3], M_valid):
+#         query = self.query(edge[0]_tensor)
+#         key_i = self.key_i(edge[0]_tensor)
+#         key_j = self.key_j(edge[1]_tensor)
+#         value_i = self.value_i(edge[0]_tensor)
+#         value_j = self.value_j(edge[1]_tensor)
+#         edge = self.edge(edge[2]_tensor)
 
 #         query_C = torch.cat((query, query, query), dim=-1)
 #         key_C = torch.cat((key_i, key_j, edge), dim=-1)
@@ -60,7 +60,7 @@ class AttentionFunction(nn.Module):
 #         d = key_C.shape[-1]
 
 #         alpha_original = torch.sigmoid(self.layer_norm(torch.mul(query_C, key_C) / d))
-#         symmetry = 1 + self.symmetry(torch.mul(M_sym,e_ij_tensor))
+#         symmetry = 1 + self.symmetry(torch.mul(edge[3],edge[2]_tensor))
 #         alpha = torch.mul(torch.mul(alpha_original, symmetry), M_valid)
 
 #         return alpha, value_C

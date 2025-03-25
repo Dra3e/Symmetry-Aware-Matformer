@@ -32,3 +32,27 @@ class Update(nn.Module):
         updated_features = self.layer_norm(ln_transformed)
 
         return updated_features
+    
+    def batch_forward(self, aggregated_input, atom_features):
+        """
+        Perform the update operation using a linear transformation and layer normalization.
+
+        Parameters:
+        - aggregated_input: Aggregated features (batch_size, num_nodes, hidden_dim)
+        - atom_features: Original features (batch_size, num_nodes, input_dim)
+
+        Returns:
+        - Updated features (batch_size, num_nodes, hidden_dim)
+        """
+        # aggregated_input: (batch_size, num_nodes, hidden_dim)
+        # atom_features: (batch_size, num_nodes, input_dim)
+        transformed_features = self.w_V(atom_features)  # Shape: (batch_size, num_nodes, hidden_dim)
+        summed = aggregated_input + transformed_features  # Shape: (batch_size, num_nodes, hidden_dim)
+
+        # Apply linear transformation (LN)
+        ln_transformed = self.LN(summed) # Shape: (batch_size, num_nodes, hidden_dim)
+
+        # Apply layer normalization
+        updated_features = self.layer_norm(ln_transformed) # Shape: (batch_size, num_nodes, hidden_dim)
+
+        return updated_features

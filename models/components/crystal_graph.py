@@ -92,6 +92,39 @@ class CrystalGraph(nn.Module):
         f_star = atom_embedding(self.nodes)
         e_h = edge_transform(self.edges)
         return f_star, e_h
+    
+
+    @staticmethod
+    def embed_graph_batch(graphs, atom_feature_dim, hidden_dim, num_rbf_kernels):
+        """
+        Parallel embedding for multiple graphs.
+
+        Args:
+            graphs (list of CrystalGraph): List of graphs with the same nodes.
+            atom_feature_dim (int): Feature dimension of atomic nodes.
+            hidden_dim (int): Hidden dimension for embeddings.
+            num_rbf_kernels (int): Number of RBF kernels.
+
+        Returns:
+            f_star (torch.Tensor): Batched node feature tensor.
+            e_h (torch.Tensor): Batched edge feature tensor.
+        """
+        if not graphs:
+            raise ValueError("Graph list is empty!")
+
+        # Assume all graphs share the same nodes
+        node_tensor = torch.stack([graph.nodes for graph in graphs])  # Shape: (num_graphs, num_nodes, feature_dim)
+        edge_tensor = torch.stack([graph.edges for graph in graphs])  # Shape: (num_graphs, num_edges, edge_dim)
+
+        # Initialize models
+        atom_embedding = CGCNN(atom_feature_dim, hidden_dim)
+        edge_transform = EdgeTransformation(num_rbf_kernels, hidden_dim)
+
+        # Process all graphs at once
+        f_star = atom_embedding(node_tensor)  # Parallel computation
+        e_h = edge_transform(edge_tensor)    # Parallel computation
+
+        return f_star, e_h  # Now batched over all graphs
 
     @staticmethod
     def create_batch(crystals):
