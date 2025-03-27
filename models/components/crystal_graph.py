@@ -67,31 +67,6 @@ class CrystalGraph(nn.Module):
                 edges.append([i, i, displacements[i].item(), 1])  # augmented/self-edge
 
         return cls(nodes=nodes, edges=edges, config=config)
-
-
-
-    def embed_graph(self, atom_feature_dim, hidden_dim, num_rbf_kernels):
-        """
-        Generates node and edge embeddings using dynamically set parameters.
-
-        Args:
-            atom_feature_dim (int): Dimension of input atomic feature vectors.
-            hidden_dim (int): Dimension of transformed node and edge features.
-            num_rbf_kernels (int): Number of RBF kernels for distance expansion.
-
-        Returns:
-            f_star (torch.Tensor): Node feature matrix.
-            e_h (torch.Tensor): Edge feature matrix.
-        """
-        if self.nodes is None or self.edges is None:
-            raise ValueError("Graph has not been initialized.")
-
-        atom_embedding = CGCNN(atom_feature_dim, hidden_dim)
-        edge_transform = EdgeTransformation(num_rbf_kernels, hidden_dim)
-
-        f_star = atom_embedding(self.nodes)
-        e_h = edge_transform(self.edges)
-        return f_star, e_h
     
 
     @staticmethod

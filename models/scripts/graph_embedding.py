@@ -1,6 +1,50 @@
 import torch
 import torch.nn as nn
 
+class GraphEmbedder(nn.Module):
+    def __init__(self, atom_feature_dim, hidden_dim, num_rbf_kernels = 50):
+        super().__init__()
+        self.atom_embedding = CGCNN(atom_feature_dim, hidden_dim)
+        self.edge_transform = EdgeTransformation(num_rbf_kernels, hidden_dim)
+    
+    def forward(self, graph):
+        """
+        Generates node and edge embeddings using dynamically set parameters.
+
+        Args:
+            atom_feature_dim (int): Dimension of input atomic feature vectors.
+            hidden_dim (int): Dimension of transformed node and edge features.
+            num_rbf_kernels (int): Number of RBF kernels for distance expansion.
+
+        Returns:
+            f_star (torch.Tensor): Node feature matrix.
+            e_h (torch.Tensor): Edge feature matrix.
+        """
+        f_star = self.atom_embedding.forward(graph.nodes)
+        e_h = self.edge_transform.forward(graph.edges)
+        return f_star, e_h
+
+    def batch_forward(self, graphs):
+        """
+        Generates node and edge embeddings using dynamically set parameters.
+
+        Args:
+            atom_feature_dim (int): Dimension of input atomic feature vectors.
+            hidden_dim (int): Dimension of transformed node and edge features.
+            num_rbf_kernels (int): Number of RBF kernels for distance expansion.
+
+        Returns:
+            f_star (torch.Tensor): Node feature matrix.
+            e_h (torch.Tensor): Edge feature matrix.
+        """
+
+        node_tensor = torch.stack([graph.nodes for graph in graphs])  # Shape: (num_graphs, num_nodes, feature_dim)
+        edge_tensor = torch.stack([graph.edges for graph in graphs])  # Shape: (num_graphs, num_edges, edge_dim)
+
+        f_star = self.atom_embedding.forward(node_tensor)
+        e_h = self.edge_transform.batch_forward(edge_tensor)
+        return f_star, e_h
+
 class CGCNN(nn.Module):
     """
     Transforms the atomic feature matrix A into learned node embeddings.
