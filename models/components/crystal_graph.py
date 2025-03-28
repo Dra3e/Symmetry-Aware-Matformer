@@ -7,7 +7,7 @@ class CrystalGraph(nn.Module):
     A unified class combining graph generation from crystal structures and embedding.
     """
 
-    def __init__(self, nodes=None, edges=None, config=3.0):
+    def __init__(self, nodes=None, edges=None, m_valid=1, config=3.0):
         """
         Initializes a CrystalGraph. Use `init_from_crystal()` to create an instance from a crystal.
         """
@@ -15,9 +15,10 @@ class CrystalGraph(nn.Module):
         self.nodes = nodes  # Atomic feature matrix
         self.edges = edges  # Edge distance matrix
         self.config = config
+        self.m_valid = m_valid
 
     @classmethod
-    def init_from_crystal(cls, crystal, config=3.0):
+    def init_from_crystal(cls, crystal, m_valid=1, config=3.0):
         """
         Creates a CrystalGraph instance from a given crystal structure.
 
@@ -44,19 +45,19 @@ class CrystalGraph(nn.Module):
                     translated = crystal.X[j] + t @ crystal.L
                     distance = torch.norm(crystal.X[i] - translated)
                     if distance <= config:
-                        edges.append([i, j, distance.item(), 0])
+                        edges.append([i, j, distance.item(), 0, m_valid])
                         if i != j:
-                            edges.append([j, i, distance.item(), 0])  # undirected
+                            edges.append([j, i, distance.item(), 0, m_valid])  # undirected
 
         return cls(nodes=nodes, edges=edges, config=config)
     
     @classmethod
-    def init_from_augmented_crystal(cls, original_crystal, augmented_crystals, config=3.0):
+    def init_from_augmented_crystal(cls, original_crystal, augmented_crystals, m_valid=1, config=3.0):
         """
         Initializes a CrystalGraph from an original crystal and a list of its augmented versions.
         Computes standard edges via init_from_crystal and adds displacement as self-loop edges.
         """
-        base_graph = cls.init_from_crystal(original_crystal, config)
+        base_graph = cls.init_from_crystal(original_crystal, config, m_valid)
         nodes = base_graph.nodes
         edges = base_graph.edges.copy()
         num_nodes = nodes.shape[0]
@@ -64,7 +65,7 @@ class CrystalGraph(nn.Module):
         for aug in augmented_crystals:
             displacements = torch.norm(aug.X - original_crystal.X, dim=1)
             for i in range(num_nodes):
-                edges.append([i, i, displacements[i].item(), 1])  # augmented/self-edge
+                edges.append([i, i, displacements[i].item(), 1, m_valid])  # augmented/self-edge
 
         return cls(nodes=nodes, edges=edges, config=config)
     
@@ -102,6 +103,6 @@ class CrystalGraph(nn.Module):
         return f_star, e_h  # Now batched over all graphs
 
     @staticmethod
-    def create_batch(crystals):
+    def create_batch(crystals, m_valid=1):
         """Creates a batch of CrystalGraph objects from a list of crystals."""
-        return [CrystalGraph.init_from_crystal(crystal) for crystal in crystals]
+        return [CrystalGraph.init_from_crystal(crystal, m_valid) for crystal in crystals]

@@ -1,6 +1,6 @@
 import numpy as np
 import unittest
-from components.loss_functions import LossProperty, LossContrastive, LossFactor, LossTotal
+from training.loss_functions import LossProperty, LossContrastive, LossFactor, LossTotal
 
 class Test_Loss_Functions(unittest.TestCase):
     def test_LossProperty_CorrectInput(self):

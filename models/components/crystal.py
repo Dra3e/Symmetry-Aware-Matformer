@@ -1,4 +1,6 @@
 import torch
+import spglib
+import numpy as np
 
 class Crystal:
     def __init__(self, A, X, L):
@@ -7,114 +9,31 @@ class Crystal:
         self.X = X.clone().detach() if isinstance(X, torch.Tensor) else torch.tensor(X, dtype=torch.float32)
         self.L = L.clone().detach() if isinstance(L, torch.Tensor) else torch.tensor(L, dtype=torch.float32)
 
-    def apply_augmentations(self, axes, planes, directions):
+    import torch
+
+    def apply_augmentations(self, symmetry_operations):
         """
-        Generates valid augmentations for a crystal structure based on the given axes and planes.
-        Keyword arguments:
-        - axes: List of Axis objects representing rotation axes.
-        - planes: List of Plane objects representing reflection planes.
+        Applies symmetry operations to a crystal and returns all augmented crystal objects.
+
+        Args:
+            symmetry_operations (list of torch.Tensor): List of 3x3 rotation matrices representing symmetry operations.
+
+        Returns:
+            list of Crystal: List containing augmented Crystal objects, each with updated atomic positions.
         """
-        augmentations = []
+        augmented_crystals = []  # List to store augmented Crystal objects for each symmetry operation
 
-        # Apply translation
-        for translation in directions:
+        for op in symmetry_operations:
+            # Create a new Crystal object with the current atomic positions and lattice
             augmented_crystal = Crystal(self.A, self.X, self.L)
-            if translation is not None:
-                # Convert translation to a PyTorch tensor with integer dtype
-                translation_tensor = torch.tensor(translation, dtype=torch.int32)
-                augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = augmented_crystal.translate_crystal(
-                    self.A, self.X, self.L, translation_tensor
-                )
-            augmentations.append(augmented_crystal)
-            # print(f"Translation: {translation}, Augmentations: {len(augmentations)}")
+            
+            # Apply the symmetry operation to the atomic positions X: X' = op * X
+            augmented_crystal.X = (op @ self.X.T).T  # Apply the symmetry operation to the atomic positions X
 
-        # Apply rotations
-        for axis in axes:
-            for angle in [90, 180, 270]:
-                augmented_crystal = Crystal(self.A, self.X, self.L)
-                augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = axis.rotate_crystal(
-                    self.A, self.X, self.L, axis.V, angle
-                )
-                augmentations.append(augmented_crystal)
-                # print(f"Rotation: Axis {axis.V}, Angle {angle}, Augmentations: {len(augmentations)}")
+            # Append the augmented crystal to the list
+            augmented_crystals.append(augmented_crystal)
 
-        # Apply reflections
-        for plane in planes:
-            augmented_crystal = Crystal(self.A, self.X, self.L)
-            augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = plane.reflect_crystal(
-                self.A, self.X, self.L, plane.N
-            )
-            augmentations.append(augmented_crystal)
-            # print(f"Reflection: Plane {plane.N}, Augmentations: {len(augmentations)}")
-
-        # Apply combinations of transformations
-
-        # Translation + Rotation
-        for translation in directions:
-            for axis in axes:
-                for angle in [90, 180, 270]:
-                    augmented_crystal = Crystal(self.A, self.X, self.L)
-                    if translation is not None:
-                        translation_tensor = torch.tensor(translation, dtype=torch.int32)
-                        augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = augmented_crystal.translate_crystal(
-                            self.A, self.X, self.L, translation_tensor
-                        )
-                    augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = axis.rotate_crystal(
-                        augmented_crystal.A, augmented_crystal.X, augmented_crystal.L, axis.V, angle
-                    )
-                    augmentations.append(augmented_crystal)
-                    # print(f"Translation + Rotation: {translation}, Axis {axis.V}, Angle {angle}, Augmentations: {len(augmentations)}")
-        
-        # Translation + Reflection
-        for translation in directions:
-            for plane in planes:
-                augmented_crystal = Crystal(self.A, self.X, self.L)
-                if translation is not None:
-                    translation_tensor = torch.tensor(translation, dtype=torch.int32)
-                    augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = augmented_crystal.translate_crystal(
-                        self.A, self.X, self.L, translation_tensor
-                    )
-                augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = plane.reflect_crystal(
-                    augmented_crystal.A, augmented_crystal.X, augmented_crystal.L, plane.N
-                )
-                augmentations.append(augmented_crystal)
-                # print(f"Translation + Reflection: {translation}, Plane {plane.N}, Augmentations: {len(augmentations)}")
-        
-        # Rotation + Reflection
-        for axis in axes:
-            for angle in [90, 180, 270]:
-                for plane in planes:
-                    augmented_crystal = Crystal(self.A, self.X, self.L)
-                    augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = axis.rotate_crystal(
-                        self.A, self.X, self.L, axis.V, angle
-                    )
-                    augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = plane.reflect_crystal(
-                        augmented_crystal.A, augmented_crystal.X, augmented_crystal.L, plane.N
-                    )
-                    augmentations.append(augmented_crystal)
-                    # print(f"Rotation + Reflection: Axis {axis.V}, Angle {angle}, Plane {plane.N}, Augmentations: {len(augmentations)}")
-
-        # Translation + Rotation + Reflection
-        for translation in directions: 
-            for axis in axes:
-                for angle in [90, 180, 270]:
-                    for plane in planes:
-                        augmented_crystal = Crystal(self.A, self.X, self.L)
-                        if translation is not None:
-                            translation_tensor = torch.tensor(translation, dtype=torch.int32)
-                            augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = augmented_crystal.translate_crystal(
-                                self.A, self.X, self.L, translation_tensor
-                            )
-                        augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = axis.rotate_crystal(
-                            augmented_crystal.A, augmented_crystal.X, augmented_crystal.L, axis.V, angle
-                        )
-                        augmented_crystal.A, augmented_crystal.X, augmented_crystal.L = plane.reflect_crystal(
-                            augmented_crystal.A, augmented_crystal.X, augmented_crystal.L, plane.N
-                        )
-                        augmentations.append(augmented_crystal)
-                        # print(f"Translation + Rotation + Reflection: {translation}, Axis {axis.V}, Angle {angle}, Plane {plane.N}, Augmentations: {len(augmentations)}")
-
-        return augmentations
+        return augmented_crystals  # Return the list of augmented Crystal objects
 
     def translate_crystal(self, coefficients): 
         """
@@ -144,3 +63,31 @@ class Crystal:
         X_translated = self.X + translation_vector
 
         return self.A, X_translated, self.L
+    
+    def get_symmetry_operations(self):
+        # Convert torch tensors to numpy
+        lattice = self.L.numpy()
+        positions = self.X.numpy() @ np.linalg.inv(lattice)  # fractional coords
+        try:
+            numbers = self.A[:, 0].int().numpy()  # Assumes first column of A is atomic number
+        except:
+            raise ValueError("Cannot extract atomic numbers from self.A. Ensure atomic number is in first column.")
+
+        # Create crystal structure tuple
+        cell = (lattice, positions, numbers)
+
+        # Get symmetry dataset
+        dataset = spglib.get_symmetry_dataset(cell)
+
+        # Get rotation matrices and convert to torch tensors
+        raw_rotations = dataset['rotations']
+        identity = torch.eye(3)
+
+        # Filter out identity matrix
+        rotation_matrices = [
+            torch.tensor(R, dtype=torch.float32)
+            for R in raw_rotations
+            if not torch.allclose(torch.tensor(R, dtype=torch.float32), identity)
+        ]
+
+        return rotation_matrices

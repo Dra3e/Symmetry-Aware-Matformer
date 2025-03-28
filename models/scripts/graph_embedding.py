@@ -120,19 +120,36 @@ class EdgeTransformation(nn.Module):
     
     def batch_forward(self, edges):
         """
-        edges: Tensor of shape (batch_size, num_edges, edge_dim), where edge_dim = (distance, type)
+        Processes a batch of edges and returns specific parameters for each edge.
+
+        Args:
+            edges (Tensor): A tensor of shape (batch_size, num_edges, edge_dim), where edge_dim includes:
+                - Column 0: Source node index (i)
+                - Column 1: Target node index (j)
+                - Column 2: Distance between nodes (distance)
+                - Column 3: Symmetry information (m_sym)
+                - Column 4: Validity mask (m_valid)
+
+        Returns:
+            Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+                - f_i (Tensor): Source node indices, shape (batch_size, num_edges, 1)
+                - f_j (Tensor): Target node indices, shape (batch_size, num_edges, 1)
+                - distances (Tensor): Distances between nodes, shape (batch_size, num_edges, 1)
+                - m_sym (Tensor): Symmetry information, shape (batch_size, num_edges, 1)
+                - m_valid (Tensor): Validity mask, shape (batch_size, num_edges, 1)
         """
-        # Assuming `edges` is a tensor with shape (batch_size, num_edges, 4) 
-        # where each edge is [i, j, distance, type]
+
+        f_i = edges[:, :, 0].unsqueeze(-1) # Shape: (batch_size, num_edges, 1)
+        f_j = edges[:, :, 1].unsqueeze(-1)  # Shape: (batch_size, num_edges, 1)
         distances = edges[:, :, 2].unsqueeze(-1)  # Shape: (batch_size, num_edges, 1)
-        types = edges[:, :, 3].unsqueeze(-1).float()  # Shape: (batch_size, num_edges, 1)
+        m_sym = edges[:, :, 3].unsqueeze(-1).float()  # Shape: (batch_size, num_edges, 1)
+        m_valid = edges[:, :, 4].unsqueeze(-1).float()
 
         # RBF encoding
-        rbf_encoded = self.rbf_expansion(distances)  # Shape: (batch_size, num_edges, num_kernels)
-        combined = torch.cat([rbf_encoded, types], dim=-1)  # Shape: (batch_size, num_edges, num_kernels + 1)
+        modified_distance = self.activation(self.linear(self.rbf_expansion(distances)))  # Shape: (batch_size, num_edges, num_kernels)
+        combined = torch.cat([f_i, f_j, modified_distance, m_sym, m_valid], dim=-1)  # Shape: (batch_size, num_edges, num_kernels + 1)
 
-        return self.activation(self.linear(combined))  # Shape: (batch_size, num_edges, hidden_dim)
-
+        return combined # Shape: (batch_size, num_edges, hidden_dim)
 
 
 class RBF(nn.Module):

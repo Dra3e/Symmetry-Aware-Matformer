@@ -20,7 +20,7 @@ class TransformerLayer(nn.Module):
         
         return torch.stack(transformed_values, dim=0)  # Stack back to original shape
     
-    def transform(self, atom_features, edge_features):
+    def transform(self, atom_features, edge_features, gradient):
         """
         Uses attention and aggregation function to calculate
         the m features vector for each atom in the crystals
@@ -46,7 +46,7 @@ class TransformerLayer(nn.Module):
             for atom in crystal:
                 # Attention
                 batched_edges = [torch.stack(edges, dim=0) for edges in zip(*crystalEdgeList[i][atom])] # Badge the edge with its neighbours
-                alpha_matrix, value_matrix = self.attention(batched_edges)
+                alpha_matrix, value_matrix = self.attention(batched_edges, gradient)
                 
                 # Aggregation
                 transformed_value_matrix = self.apply_linear_transform(value_matrix)
@@ -60,13 +60,13 @@ class TransformerLayer(nn.Module):
         
         return crystalmList
 
-    def attention(self, edge):
+    def attention(self, edge, gradient):
         
         alpha_list = []
         value_list = []
 
         for head in self.heads:
-            alpha, value = head(edge)
+            alpha, value = head(edge, gradient)
             alpha_list.append(alpha)
             value_list.append(value)
 

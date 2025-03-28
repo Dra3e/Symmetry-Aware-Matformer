@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import math
 
 class AttentionFunction(nn.Module):
     def __init__(self, hidden_dim):
@@ -14,7 +15,7 @@ class AttentionFunction(nn.Module):
         self.layer_norm = nn.LayerNorm(hidden_dim * 3)  # 3 because we concatenate over three elements with edge[0] dimensions
         self.symmetry = nn.Linear(hidden_dim, hidden_dim, bias=False)
 
-    def forward(self, edge):
+    def forward(self, edge, gradient):
         query = self.query(edge[0])
         key_i = self.key_i(edge[0])
         key_j = self.key_j(edge[1])
@@ -29,6 +30,7 @@ class AttentionFunction(nn.Module):
 
         alpha_original = torch.sigmoid(self.layer_norm(torch.mul(query_C, key_C) / d))
         symmetry = 1 + self.symmetry(torch.mul(edge[3],edge[2]))
-        alpha = torch.mul(torch.mul(alpha_original, symmetry), edge[4])
+        m_valid = 1 / (1 + math.exp(-gradient * (edge[4] - 0.5)))
+        alpha = torch.mul(torch.mul(alpha_original, symmetry), m_valid)
 
         return alpha, value_C
