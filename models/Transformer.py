@@ -64,7 +64,7 @@ class Transformer(nn.Module):
                 edge_chunk = edge_features[related_edges]  # Chunk of edge features
 
                 # Step 3: Calculate attention score and aggreate
-                m_chunk = self.transformer_layer.transform(node_chunk, edge_chunk, self.gradient) # Process the chunk using transformer layer
+                m_chunk = self.transformer_layer.forward(node_chunk, edge_chunk, self.gradient) # Process the chunk using transformer layer
                 m_features_list.append(m_chunk) # Append the processed chunk to the list
 
             # Step 4: Concatenate all chunked features

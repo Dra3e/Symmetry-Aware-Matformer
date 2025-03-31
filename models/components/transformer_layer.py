@@ -1,83 +1,65 @@
 import torch
 import torch.nn as nn
+from torch_scatter import scatter
 from models.scripts.attention_function import AttentionFunction
 
 class TransformerLayer(nn.Module):
-    """ A multi headed transformer layer """
+    """ A multi-headed transformer layer """
     def __init__(self, hidden_dim, head_size):
         """
-        Initilizes TransformerLayer instance as a multi headed transformer layer with its dimensions.
+        Initializes TransformerLayer instance.
 
         Args:
-            hidden_dim (int): The expected dimension of the input and the dimension of the output.
-            head_size (int): How many heads to initialize.
+            hidden_dim (int): Dimension of node features.
+            head_size (int): Number of attention heads.
         """
         super(TransformerLayer, self).__init__()
         self.head_size = head_size
+        self.feature_dim = hidden_dim * 3  # From attention: value_i + value_j + edge
+
         self.attention_function = AttentionFunction(hidden_dim, head_size)
-        feature_dim = 5 * hidden_dim  
-        self.linear = nn.Linear(feature_dim, feature_dim)
+
+        # Per-head linear weights and bias: (H, D, D)
+        self.linear_weight = nn.Parameter(torch.randn(head_size, self.feature_dim, self.feature_dim))
+        self.linear_bias = nn.Parameter(torch.zeros(head_size, self.feature_dim))
 
     def forward(self, node_chunk, edge_chunk, gradient):
         """
-            Calculates the strength/effect of each atom in the crystal on other atoms.
+        Calculates the influence of neighboring atoms using attention.
 
-            Args:
-                node_chunk (torch.tensor): A matrix of size chunk_size x hidden_dim, representing a set of node in a graph.
-                edge_chunk: A list of tuples with size 5 that represent edges that point away from nodes in node_chunk.
-                    edge_tuple[0]: A vector of size hidden_dim representing the node the edge points away from.
-                    edge_tuple[1]: A vector of size hidden_dim representing the node the edge points to.
-                    edge_tuple[2]: A vector of size hidden_dim representing the strength of the edge.
-                    edge_tuple[3]: A scaler of value 0 or 1, 0 if physical, 1 if augmentation displacement.
-                    edge_tuple[4]: A scaler of value 0 or 1, 1 if valid, 0 if invalid.
-                gradient (float): A value between 1 and 0, how to much attention should be payed to invalid edges.
-                    If 0 then they weigh the same, if 1 and invalid edges are ignored.
-            
-            Returns:
-                m_chunk (torch.tensor): Ordered list of the strength of each node in the crystal.
-                    The placement of m value determines what atom (node) it represents.
+        Args:
+            node_chunk (torch.Tensor): [M, hidden_dim] Node features for a chunk of M nodes.
+            edge_chunk (tuple): Tuple of edge data with:
+                edge_chunk[0] (f_i): [N, D] features of destination nodes
+                edge_chunk[1] (f_j): [N, D] features of source nodes
+                edge_chunk[2] (e_ij): [N, D] edge feature vector
+                edge_chunk[3] (e_sym): [N, D] symmetry info
+                edge_chunk[4] (e_mask): [N, D] edge validity
+                edge_chunk[5] (target_index): [N] index of the destination node in `node_chunk`
+            gradient (float or tensor): Determines how much invalid edges affect attention.
+
+        Returns:
+            torch.Tensor: [M, feature_dim] The aggregated message for each node in node_chunk.
         """
-        m_chunk = []
+        f_i, f_j, e_ij, e_sym, e_mask, target_index = edge_chunk
 
-        for atoms, edges in zip(node_chunk, edge_chunk):
-            # Convert edge list into a tensor
-            crystal_edges_tensor = torch.stack(edges, dim=0)  # (num_edges, edge_feature_dim)
+        alpha, value = self.attention_function((f_i, f_j, e_ij, e_sym, e_mask), gradient)  # (H, N, D)
 
-            # Maps each edge to its corresponding atom's unique index.
-            unique_atoms, atom_indices = torch.unique(crystal_edges_tensor[:, 0], return_inverse=True)
+        # Permute to (N, H, D) so we can batch-multiply per edge (N) with per-head weights (H, D, D)
+        # value: (H, N, D) → (N, H, D)
+        value = value.permute(1, 0, 2)
 
-            # Get dimensions for edges per atom
-            max_edges = atom_indices.bincount().max().item() # The maximum number of edges that any atom in this crystal has.
-            nr_Atoms = len(unique_atoms) # The number of atoms in this crystal.
-            edge_feature_dim = crystal_edges_tensor.shape[1]
+        # Linear transformation per head
+        transformed = torch.einsum("nhd,hdf->nhf", value, self.linear_weight) + self.linear_bias.unsqueeze(1)
+        transformed = transformed.permute(1, 0, 2)  # (H, N, D)
 
-            # Efficient edge gathering via scatter
-            padded_edges = torch.zeros(nr_Atoms, max_edges, edge_feature_dim, device=crystal_edges_tensor.device)
-            mask = torch.zeros(nr_Atoms, max_edges, dtype=torch.bool, device=crystal_edges_tensor.device)
+        # Apply attention weights
+        weighted = alpha * transformed  # (H, N, D)
 
-            # Create index matrix for scatter operation, scatter_indices computes where each edge should be placed.
-            num_edges_per_atom = atom_indices.bincount()
-            scatter_indices = torch.arange(len(atom_indices), device=crystal_edges_tensor.device) - torch.cumsum(num_edges_per_atom, dim=0) + num_edges_per_atom
-            scatter_indices = scatter_indices.clamp(max=max_edges - 1)
+        # Sum across heads → (N, D)
+        m_i_per_edge = weighted.sum(dim=0)
 
-            # Scatter edges into the padded tensor and mask empty spaces
-            padded_edges.index_add_(1, scatter_indices, crystal_edges_tensor) # can run in parallel in stead of looping
-            mask.index_fill_(1, scatter_indices, 1)
+        # Aggregate per node using target_index → (M, D)
+        m_i_chunk = scatter(m_i_per_edge, target_index, dim=0, dim_size=node_chunk.size(0), reduce='sum')
 
-            # Apply multi-head attention in parallel
-            alpha_matrix, value_matrix = self.attention_function(padded_edges, gradient)
-
-            # Apply linear transformation
-            transformed_value_matrix = self.linear(value_matrix)
-
-            # Compute weighted values
-            weighted_values = alpha_matrix * transformed_value_matrix  # (batch_size, max_edges, head_size, feature_dim)
-            summed_over_heads = torch.sum(weighted_values, dim=2)  # Sum across heads -> (batch_size, max_edges, feature_dim)
-
-            # Use masked_fill_() instead of multiplication for efficiency
-            summed_over_heads.masked_fill_(~mask.unsqueeze(-1), 0)
-            m_i = torch.sum(summed_over_heads, dim=1)  # Sum across valid edges -> (batch_size, feature_dim)
-
-            m_chunk.append(m_i)
-
-        return m_chunk
+        return m_i_chunk
