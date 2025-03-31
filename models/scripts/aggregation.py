@@ -2,13 +2,22 @@ import torch
 import torch.nn as nn
 
 class Aggregation(nn.Module):
-    def aggregate(self, alpha, V):
+    """ script class for aggregation step in the transformer """
+    def __init__(self):
+        """ Initializes an instance of the Aggregation class """
+        super(Aggregation, self).__init__()
+    
+    def forward(self, alpha, V):
         """
-        input: Array of inputs
-        alpha: list of Attention weights (list of n x n matrixes)
-        V: list of Value matrix (list of n x d matrixes, hvor d er feature dimension)
+        Performs the aggregation of the attention scores and values of the matformer.
+            m_i = SUM_edge_to_neighbors_of_atom_i( SUM_heads_in_layer( alpha_head*Value_head ) )
+        
+        Args:
+            attention (torch.Tensor): The attention scores for each edge for each head.
+            value (torch.Tensor): The transformer values for each edge for each head.
 
-        Output: Aggregated features (batch_size x 1)
+        Returns:
+            atom_strength (torch.Tensor): representing the strength/effect for each atom.
         """
         # Compute weighted_values
         weighted_values_list = [alpha * value for alpha, value in zip(alpha, V)] # zip() pairs up corresponding alpha_matrix and value_matrix from both lists.
@@ -19,25 +28,3 @@ class Aggregation(nn.Module):
         m_i = torch.sum(summed_over_heads, dim=0)  # (batch_size, 1)
 
         return m_i
-
-# class Aggregation(nn.Module):
-#     def __init__(self, input_dim, hidden_dim):
-#         super(Aggregation, self).__init__()
-#         self.linear_layer = nn.Linear(input_dim, hidden_dim)
-
-#     def forward(self, neighbors, alpha, V, edges):
-#         """
-#         input: Array of inputs
-#         alpha: Attention weights (n x n matrix)
-#         V: Value matrix (n x d, hvor d er feature dimension)
-#         edges: List of edges
-
-#         Output: Aggregated features (n x hidden_dim)
-#         """
-#         # Use nn.Linear on V
-#         V_transformed = self.linear_layer(V)
-
-#         return sum(
-#             sum(alpha * V_transformed for _ in range(len(neighbors)))
-#             for _ in range(len(edges))
-#         )

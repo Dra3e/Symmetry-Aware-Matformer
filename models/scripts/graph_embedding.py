@@ -2,7 +2,16 @@ import torch
 import torch.nn as nn
 
 class GraphEmbedder(nn.Module):
-    def __init__(self, atom_feature_dim, hidden_dim, num_rbf_kernels = 50):
+    """ Script class for embedding crystal graphs"""
+    def __init__(self, atom_feature_dim, hidden_dim, num_rbf_kernels=50):
+        """
+        Initializes the GraphEmbedder with its hidden dimensions.
+
+        Args:
+            atom_feature_dim (int): Dimension of input atomic feature vectors.
+            hidden_dim (int): Dimension of transformed node and edge features.
+            num_rbf_kernels (int): Number of RBF kernels for distance expansion.
+        """
         super().__init__()
         self.atom_embedding = CGCNN(atom_feature_dim, hidden_dim)
         self.edge_transform = EdgeTransformation(num_rbf_kernels, hidden_dim)
@@ -10,47 +19,22 @@ class GraphEmbedder(nn.Module):
     def forward(self, graph):
         """
         Generates node and edge embeddings using dynamically set parameters.
+            f*_i = LinearTransform(CGCNN(a_i))
+            e_ij = Softplus(LinearTransform(RBF(d_ij)))
 
         Args:
-            atom_feature_dim (int): Dimension of input atomic feature vectors.
-            hidden_dim (int): Dimension of transformed node and edge features.
-            num_rbf_kernels (int): Number of RBF kernels for distance expansion.
+            graph (models.components.CrystalGraph): CrystalGraph instance containing nodes and edges.
 
         Returns:
-            f_star (torch.Tensor): Node feature matrix.
-            e_h (torch.Tensor): Edge feature matrix.
+            atom_features (torch.Tensor): Node feature matrix.
+            edge_features (torch.Tensor): Edge feature matrix.
         """
-        f_star = self.atom_embedding.forward(graph.nodes)
-        e_h = self.edge_transform.forward(graph.edges)
-        return f_star, e_h
-
-    def batch_forward(self, graphs):
-        """
-        Generates node and edge embeddings using dynamically set parameters.
-
-        Args:
-            atom_feature_dim (int): Dimension of input atomic feature vectors.
-            hidden_dim (int): Dimension of transformed node and edge features.
-            num_rbf_kernels (int): Number of RBF kernels for distance expansion.
-
-        Returns:
-            f_star (torch.Tensor): Node feature matrix.
-            e_h (torch.Tensor): Edge feature matrix.
-        """
-
-        node_tensor = torch.stack([graph.nodes for graph in graphs])  # Shape: (num_graphs, num_nodes, feature_dim)
-        edge_tensor = torch.stack([graph.edges for graph in graphs])  # Shape: (num_graphs, num_edges, edge_dim)
-
-        f_star = self.atom_embedding.forward(node_tensor)
-        e_h = self.edge_transform.batch_forward(edge_tensor)
-        return f_star, e_h
+        atom_features = self.atom_embedding.forward(graph.nodes)
+        edge_features = self.edge_transform.forward(graph.edges)
+        return atom_features, edge_features
 
 class CGCNN(nn.Module):
-    """
-    Transforms the atomic feature matrix A into learned node embeddings.
-    
-    This mimics a simplified version of a Crystal Graph Convolutional Neural Network (CGCNN).
-    """
+    """ Transforms the atomic feature matrix A into learned node embeddings."""
 
     def __init__(self, input_dim, hidden_dim):
         """
@@ -58,7 +42,7 @@ class CGCNN(nn.Module):
 
         Args:
             input_dim (int): Dimension of atomic input features (d).
-            hidden_dim (int): Dimension of the output node embeddings (h).
+            hidden_dim (int): Dimension of the output node embeddings.
         """
         super().__init__()
         self.embedding = nn.Linear(input_dim, hidden_dim)  # Learnable transformation
@@ -66,7 +50,7 @@ class CGCNN(nn.Module):
     def forward(self, A):
         """
         Applies a linear transformation to atomic feature matrix A.
-            f*_i = LN(CGCNN(a_i))
+            f*_i = LinearTransform(CGCNN(a_i))
 
         Args:
             A (torch.Tensor): Atomic feature matrix of shape (N, d).
@@ -94,62 +78,35 @@ class EdgeTransformation(nn.Module):
             hidden_dim (int): Dimension of the output edge embeddings (h).
         """
         super().__init__()
-        self.linear = nn.Linear(num_rbf_kernels + 1, hidden_dim)  # Linear transformation (+1 for edge type)
+        self.linear = nn.Linear(num_rbf_kernels, hidden_dim)  # Linear transformation
         self.rbf_expansion = RBF(num_rbf_kernels)   # RBF expansion
         self.activation = nn.Softplus()  # Ensures positive outputs for stability
 
     def forward(self, edges):
         """
-         Args:
-            edges (list of [i, j, distance, type]):
-                - i: source node index
-                - j: target node index
-                - distance: Euclidean distance (float)
-                - type: 0 (physical) or 1 (augmented)
-        
-        Returns:
-            edge_features (Tensor): shape (num_edges, hidden_dim)
-        """
-        distances = torch.tensor([e[2] for e in edges]).unsqueeze(-1)
-        types = torch.tensor([e[3] for e in edges]).unsqueeze(-1).float()
-
-        rbf_encoded = self.rbf_expansion(distances)
-        combined = torch.cat([rbf_encoded, types], dim=1)
-
-        return self.activation(self.linear(combined))  # Linear transformation + Softplus 
-    
-    def batch_forward(self, edges):
-        """
-        Processes a batch of edges and returns specific parameters for each edge.
+        Embeds the edges using RBF expansion and linear transformation.
+            e_ij = Softplus(LinearTransform(RBF(d_ij)))
 
         Args:
-            edges (Tensor): A tensor of shape (batch_size, num_edges, edge_dim), where edge_dim includes:
-                - Column 0: Source node index (i)
-                - Column 1: Target node index (j)
-                - Column 2: Distance between nodes (distance)
-                - Column 3: Symmetry information (m_sym)
-                - Column 4: Validity mask (m_valid)
-
+            edges (list of [i, j, distance, type, valid]):
+                - i: source node index
+                - j: target node index
+                - distance: Euclidean distance (float) between atoms i and j
+                - type: 0 (physical) or 1 (augmented)
+                - valid: 1 (valid) or 0 (invalid)
+        
         Returns:
-            Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
-                - f_i (Tensor): Source node indices, shape (batch_size, num_edges, 1)
-                - f_j (Tensor): Target node indices, shape (batch_size, num_edges, 1)
-                - distances (Tensor): Distances between nodes, shape (batch_size, num_edges, 1)
-                - m_sym (Tensor): Symmetry information, shape (batch_size, num_edges, 1)
-                - m_valid (Tensor): Validity mask, shape (batch_size, num_edges, 1)
+            transformed_edges (torch.Tensor): replaces the distance in the edge list with the transformed distance.
+                - transformed_edges: [i, j, transformed_distance, type, valid]
         """
+        distances = edges[:, :, 2].unsqueeze(-1)
+        expanded_distances = self.rbf_expansion(distances) # RBF Expansion
+        transformed_distances = self.activation(self.linear(expanded_distances)) # Linear transformation + Softplus 
 
-        f_i = edges[:, :, 0].unsqueeze(-1) # Shape: (batch_size, num_edges, 1)
-        f_j = edges[:, :, 1].unsqueeze(-1)  # Shape: (batch_size, num_edges, 1)
-        distances = edges[:, :, 2].unsqueeze(-1)  # Shape: (batch_size, num_edges, 1)
-        m_sym = edges[:, :, 3].unsqueeze(-1).float()  # Shape: (batch_size, num_edges, 1)
-        m_valid = edges[:, :, 4].unsqueeze(-1).float()
+        transformed_edges = edges.clone()
+        transformed_edges[:, :, 2] = transformed_distances.squeeze(-1)
 
-        # RBF encoding
-        modified_distance = self.activation(self.linear(self.rbf_expansion(distances)))  # Shape: (batch_size, num_edges, num_kernels)
-        combined = torch.cat([f_i, f_j, modified_distance, m_sym, m_valid], dim=-1)  # Shape: (batch_size, num_edges, num_kernels + 1)
-
-        return combined # Shape: (batch_size, num_edges, hidden_dim)
+        return transformed_edges
 
 
 class RBF(nn.Module):
@@ -180,7 +137,7 @@ class RBF(nn.Module):
 
     def forward(self, D):
         """
-        Converts the 2D matrix of distances D into a 3D matrix of RBF kernel vector distances.
+        Converts the scalar distance d_ij into a vector of size num_kernels.
 
         Args:
             D (torch.Tensor): Distance matrix of shape (N, N), where each d_ij represents
@@ -188,7 +145,7 @@ class RBF(nn.Module):
                 - N: Number of atoms.
 
         Returns:
-            D_expanded torch.Tensor: Expanded distance matrix of shape (N, N, num_kernels).
+            D_expanded: Expanded distance matrix of shape.
         """
         D_expanded = D.unsqueeze(-1)  # Add extra dimension for broadcasting
         return torch.exp(-self.gamma * (D_expanded - self.centers) ** 2)  # Compute RBF transformation

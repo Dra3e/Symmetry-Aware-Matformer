@@ -2,57 +2,35 @@ import torch
 import torch.nn as nn
 
 class Update(nn.Module):
+    """ Script class for the update step of the transformer model. """
     def __init__(self, input_dim, hidden_dim):
+        """
+        Initialize the Update class.
+        
+        Args:
+            input_dim (int): Dimension of the input features
+            hidden_dim (int): Dimension of the hidden features
+        """
         super(Update, self).__init__()
-        self.w_V = nn.Linear(input_dim, hidden_dim, bias=False)  # Linear transform without bias
-        self.LN = nn.Linear(hidden_dim, hidden_dim)  # Linear transformation
-        self.layer_norm = nn.LayerNorm(hidden_dim)  # Layer normalization
+        self.weight = nn.Linear(input_dim, hidden_dim, bias=False)  # Linear transform without bias for weight
+        self.LN = nn.Linear(hidden_dim, hidden_dim)
+        self.layer_norm = nn.LayerNorm(hidden_dim)
 
     def forward(self, aggregated_input, atom_features):
         """
         Perform the update operation using a linear transformation and layer normalization.
+        Reintroduces weighted atom features to ensure they are not forgotten after finding atom strength.
+            f*_i = LNorm(LinearTransformation(atom_strenght + Weight*f_i))
 
         Parameters:
-        - aggregated_input: Aggregated features (n x d)
-        - atom_features: Original features (n x d)
+            aggregated_input (torch.tensor): An ordered list of length n with the strenght/effect of the atoms in the crystal.
+            atom_features (torch.tensor): An ordered matrix of size n x 120, where the placement of each row matches the strength/effect of the atom in the aggregated_input list.
 
         Returns:
-        - Updated features (n x d)
+            updated_features (torch.tensor): An updated list of atom features.
         """
-        # Compute w_V * atom_features
-        transformed_features = self.w_V(atom_features)
-
-        # Compute aggregated_input + transformed_features
-        summed = aggregated_input + transformed_features
-
-        # Apply linear transformation (LN)
-        ln_transformed = self.LN(summed)
-
-        # Apply layer normalization
+        
+        ln_transformed = self.LN(aggregated_input + self.weight(atom_features))
         updated_features = self.layer_norm(ln_transformed)
-
-        return updated_features
-    
-    def batch_forward(self, aggregated_input, atom_features):
-        """
-        Perform the update operation using a linear transformation and layer normalization.
-
-        Parameters:
-        - aggregated_input: Aggregated features (batch_size, num_nodes, hidden_dim)
-        - atom_features: Original features (batch_size, num_nodes, input_dim)
-
-        Returns:
-        - Updated features (batch_size, num_nodes, hidden_dim)
-        """
-        # aggregated_input: (batch_size, num_nodes, hidden_dim)
-        # atom_features: (batch_size, num_nodes, input_dim)
-        transformed_features = self.w_V(atom_features)  # Shape: (batch_size, num_nodes, hidden_dim)
-        summed = aggregated_input + transformed_features  # Shape: (batch_size, num_nodes, hidden_dim)
-
-        # Apply linear transformation (LN)
-        ln_transformed = self.LN(summed) # Shape: (batch_size, num_nodes, hidden_dim)
-
-        # Apply layer normalization
-        updated_features = self.layer_norm(ln_transformed) # Shape: (batch_size, num_nodes, hidden_dim)
 
         return updated_features
