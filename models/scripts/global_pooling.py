@@ -2,36 +2,23 @@ import torch
 import torch.nn as nn
 
 class GlobalPooling(nn.Module):
+    """ Script class for performing """
     def __init__(self):
+        """ Initializes an instance of the GlobalPooling class """
         super(GlobalPooling, self).__init__()
 
     def forward(self, updated_features):
         """
         Perform global pooling by summing the output of updated crystals.
+            F_crystal = SUM_each_atom_in_crystal(f_atom)
 
-        Parameters:
-        - updated_crystals: List of updated crystal features (list of tensors)
+        Args:
+            updated_crystals: A list with length n of crystal atoms features.
 
         Returns:
-        - Pooled features (tensor)
+            pooled_features: A scalar with the sum of the atoms of the crystal.
         """
         # Use torch.sum to sum the output of updated crystals along the first dimension (rows)
         pooled_features = torch.sum(torch.stack(updated_features), dim=0)
-
-        return pooled_features
-    
-    def batch_forward(self, updated_features):
-        """
-        Perform global pooling by summing the output of updated crystals.
-
-        Parameters:
-        - updated_crystals: List of updated crystal features (list of tensors) (batch_size, num_nodes, hidden_dim)
-
-        Returns:
-        - Pooled features (tensor) (batch_size, hidden_dim)
-        """
-
-        # updated_features: (batch_size, num_nodes, hidden_dim)
-        pooled_features = updated_features.mean(dim=1)  # Shape: (batch_size, hidden_dim)
 
         return pooled_features

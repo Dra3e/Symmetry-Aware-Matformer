@@ -11,6 +11,7 @@ def LossProperty(actual_Y, predicted_Y):
 def LossContrastive(actual_F, predicted_F, flag_list, margin):
     """Contrastive Loss using Euclidean distance"""
     if actual_F.shape == predicted_F.shape and actual_F.shape[0] == flag_list.shape[0]:
+        flag_list = flag_list.float() # PyTorch’s autograd system expects tensors involved in gradient computations to be float32 unless explicitly stated otherwise.
         distances = torch.norm(actual_F - predicted_F, dim=1)
         loss = ((1 - flag_list) * (distances ** 2)) + (flag_list * torch.clamp(margin - distances, min=0) ** 2)
         return torch.mean(loss)
@@ -20,14 +21,14 @@ def LossContrastive(actual_F, predicted_F, flag_list, margin):
 def LossFactor(loss, factor):
     """Factorized Multi-Task Loss"""
     if factor != 0:
-        return (loss / (factor ** 3)) + (1 / factor)
+        return (loss / ((factor + 1e-6) ** 3)) + (1 / factor)
     else:
         raise ValueError("Cannot divide by zero!")
 
 def LossTotal(losses, factors):
     """Multi-Task Loss"""
     if losses.shape == factors.shape and torch.prod(factors) != 0:
-        total_loss = torch.sum(losses / (2 * (factors ** 2))) + torch.log10(torch.prod(factors))
+        total_loss = torch.sum(losses / (2 * (factors ** 2))) + torch.log10(torch.clamp(torch.prod(factors), min=1e-6))
         return total_loss
     else:
         raise ValueError("Inputs are not the same size!")
