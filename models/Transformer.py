@@ -74,4 +74,4 @@ class Transformer(nn.Module):
             y_property = self.readout(m_features, atom_features) # Readout layer for pooling and prediction
             predicted_properties.append(y_property) # Append the predicted property to the list
 
-        return predicted_properties
+        return predicted_properties, graphs

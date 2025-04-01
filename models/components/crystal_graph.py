@@ -54,9 +54,9 @@ class CrystalGraph(nn.Module):
                     translated = crystal.X[j] + t @ crystal.L # Apply translation to get surrounding unit cells
                     distance = torch.norm(crystal.X[i] - translated) # Compute distance between atoms
                     if distance <= config: # Only keep edges within cutoff distance
-                        edges.append([nodes[i], nodes[j], distance.item(), 0, m_valid, i])
+                        edges.append([i, j, distance.item(), 0, m_valid, i])
                         if i != j:
-                            edges.append([nodes[j], nodes[i], distance.item(), 0, m_valid, j])  # undirected edges
+                            edges.append([j, i, distance.item(), 0, m_valid, j])  # undirected edges
 
         return cls(nodes=nodes, edges=edges, config=config)
     
@@ -84,7 +84,7 @@ class CrystalGraph(nn.Module):
         for aug in augmented_crystals:
             displacements = torch.norm(aug.X - original_crystal.X, dim=1) # Compute atomic displacements
             for i in range(num_nodes):
-                edges.append([nodes[i], nodes[i], displacements[i].item(), 1, m_valid, i]) # Self-loop for augmentation tracking
+                edges.append([i, i, displacements[i].item(), 1, m_valid, i]) # Self-loop for augmentation tracking
 
         return cls(nodes=nodes, edges=edges, config=config)
 

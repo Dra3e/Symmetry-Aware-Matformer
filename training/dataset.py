@@ -1,39 +1,41 @@
 import json
+import pickle
 import random
 import torch
 from mp_api.client import MPRester
 from models.components.crystal import Crystal
 from pymatgen.core import Structure
+from pathlib import Path
 
 API_KEY = "exOmUg204h1fbQsVK65z9U5YLGXK453p"
 
-def fetch_crystals_from_mp():
+def fetch_crystals_from_mp(crystals):
     """
     Fetches a specified number of crystal structures from the Materials Project database using the MPRester API.
     Filters the crystals based on certain criteria (e.g., stable crystals with 2-5 elements) and saves them into JSON files.
     """
-    TOTAL_CRYSTALS = 1000  # Total number of crystals to fetch from Materials Project
-    BATCH_SIZE = 100  # Number of crystals to fetch in each API call (batch size)
+    total_crystals = crystals  # Total number of crystals to fetch from Materials Project
+    batch_size = 100  # Number of crystals to fetch in each API call (batch size)
 
     all_crystals = []  # List to store all fetched crystals
     num_fetched = 0  # Counter to track how many crystals have been fetched so far
 
     # Using the MPRester class to interact with Materials Project API
     with MPRester(API_KEY) as mpr:
-        while num_fetched < TOTAL_CRYSTALS:
+        while num_fetched < total_crystals:
             # Search for crystals based on certain criteria (e.g., stable crystals with 2-5 elements)
             docs = mpr.materials.search(
                 fields = [  # Fields to retrieve for each material
-                    "material_id", "structure", "band_gap", "density", "formation_energy_per_atom",
-                    "energy_above_hull", "volume", "spacegroup", "lattice", "elasticity", "dielectric_constant",
-                    "bulk_modulus", "shear_modulus", "poisson_ratio", "fermi_energy", "specific_heat",
-                    "optical_gap", "elastic_modulus", "magnetization", "thermoelectric_power_factor", "vibration_modes",
-                    "critical_temperature"
+                    'builder_meta', 'nsites', 'elements', 'nelements', 'composition', 'composition_reduced', 
+                    'formula_pretty', 'formula_anonymous', 'chemsys', 'volume', 'density', 'density_atomic', 
+                    'symmetry', 'material_id', 'structure', 'deprecated', 'deprecation_reasons', 'initial_structures', 
+                    'task_ids', 'deprecated_tasks', 'calc_types', 'last_updated', 'created_at', 'origins', 'warnings', 
+                    'task_types', 'run_types', 'entries'
                 ],
-                energy_above_hull = (0, 0.1),  # Filter for stable crystals (energy above hull <= 0.1)
-                num_elements = (2, 5),  # Only fetch crystals with 2 to 5 elements
-                chunk_size = BATCH_SIZE,  # Number of crystals per request (batch size)
-                offset = num_fetched  # Offset to keep track of how many have been fetched so far
+                # energy_above_hull = (0, 0.1),  # Filter for stable crystals (energy above hull <= 0.1)
+                # num_elements = (2, 5),  # Only fetch crystals with 2 to 5 elements
+                chunk_size = batch_size,  # Number of crystals per request (batch size)
+                # offset = num_fetched  # Offset to keep track of how many have been fetched so far
             )
 
             if not docs:
@@ -64,52 +66,97 @@ def fetch_crystals_from_mp():
     print(f"Training set: {len(train_data)} crystals")
     print(f"Evaluation set: {len(eval_data)} crystals")
 
-
-def get_training_data(property_type):
+def convert_pkl_to_json(pkl_path: str, json_path: str):
     """
-    Loads training data from the 'train_crystals.json' file, extracts a specified property for each crystal,
-    and returns a list of tuples containing a Crystal object and its corresponding property value.
+    Converts a .pkl file to a .json file.
 
     Args:
-        property_type (str): The name of the property to extract for each crystal (e.g., 'band_gap', 'density').
+        pkl_path (str): Path to the .pkl file.
+        json_path (str): Path where the .json file should be saved.
+    """
+    # Convert string paths to Path objects
+    pkl_file = Path(pkl_path)
+    json_file = Path(json_path)
+
+    # Load the .pkl file
+    with open(pkl_file, 'rb') as f:
+        data = pickle.load(f)
+
+    # Save the data as a .json file
+    with open(json_file, 'w') as f:
+        json.dump(data, f, indent=4, default=str)  # default=str helps with non-serializable objects
+
+    print(f"Saved JSON to {json_file}")
+
+import pickle
+import json
+from pathlib import Path
+
+def extract_crystal_from_pkl(pkl_path: str, json_path: str, crystal_id):
+    """
+    Extracts a single crystal from a .pkl file and saves it as a .json file.
+
+    Args:
+        pkl_path (str): Path to the .pkl file.
+        json_path (str): Path where the .json file should be saved.
+        crystal_id (int or str): Index or key of the crystal to extract.
+    """
+    pkl_file = Path(pkl_path)
+    json_file = Path(json_path)
+
+    with open(pkl_file, 'rb') as f:
+        data = pickle.load(f)
+
+    # Extract the specific crystal
+    try:
+        crystal = data[crystal_id]
+    except (KeyError, IndexError, TypeError) as e:
+        raise ValueError(f"Could not extract crystal '{crystal_id}' from the data: {e}")
+
+    # Save that one crystal to a JSON file
+    with open(json_file, 'w') as f:
+        json.dump(crystal, f, indent=4, default=str)
+
+    print(f"Saved crystal '{crystal_id}' to {json_file}")
+
+def get_training_data(property_type, json_path: str):
+    """
+    Takes a single crystal dictionary (with 'atoms' format), extracts the specified property,
+    and returns a list with one tuple: (Crystal object, property value).
+
+    Args:
+        property_type (str): The name of the property to extract (e.g., 'gap pbe').
+        crystal_data (dict): A single crystal entry in the custom format.
 
     Returns:
-        list: A list of tuples, where each tuple contains:
-              - A Crystal object representing the atomic features, positions, and lattice of the crystal.
-              - The value of the specified property for that crystal.
+        list: A list containing one tuple: (Crystal, property_value)
     """
-    
-    # Load the training data from the 'train_crystals.json' file
-    with open("train_crystals.json", "r") as f:
-        train_data = json.load(f)
+    with open(json_path, "r") as f:
+        crystal_data = json.load(f)
 
-    output = []  # List to store the final output of Crystal objects and their properties
+    # Get the property value
+    property_value = crystal_data.get(property_type, None)
+    if property_value is None:
+        print(f"Warning: {property_type} not found in entry {crystal_data.get('id', 'unknown')}")
+        return []
 
-    # Loop through each crystal in the training data
-    for crystal in train_data:
-        # Extract the relevant property for each crystal, return None if property is not found
-        property_value = crystal.get(property_type, None)
+    # Extract atoms section
+    atoms = crystal_data["atoms"]
 
-        # Check if the property exists for the current crystal
-        if property_value is None:
-            # Print a warning message if the property is not found
-            print(f"Warning: {property_type} not found for crystal {crystal['material_id']}")
-            continue  # Skip the current crystal if the property is missing
+    # Build pymatgen Structure object
+    structure = Structure(
+        lattice=atoms["lattice_mat"],
+        species=atoms["elements"],
+        coords=atoms["coords"],
+        coords_are_cartesian=atoms.get("cartesian", False)
+    )
 
-        # Extract atomic features (n x f matrix, where f=1 for atomic numbers)
-        structure = Structure.from_dict(crystal["structure"])  # Convert the structure from dictionary format
-        A = torch.tensor([[site.specie.number] for site in structure.sites], dtype=torch.float32)  # Atomic numbers
+    # Convert to tensors
+    A = torch.tensor([[site.specie.number] for site in structure.sites], dtype=torch.float32)
+    X = torch.tensor(structure.cart_coords, dtype=torch.float32)
+    L = torch.tensor(structure.lattice.matrix, dtype=torch.float32)
 
-        # Extract atomic positions (n x 3 matrix) in Cartesian coordinates
-        X = torch.tensor(structure.cart_coords, dtype=torch.float32)
+    # Create Crystal object
+    crystal_instance = Crystal(A, X, L)
 
-        # Extract lattice vectors (3 x 3 matrix) describing the crystal's unit cell
-        L = torch.tensor(structure.lattice.matrix, dtype=torch.float32)
-
-        # Create a Crystal object using the extracted atomic features, positions, and lattice
-        crystal_instance = Crystal(A, X, L)
-
-        # Append the Crystal object and its corresponding property value as a tuple to the output list
-        output.append((crystal_instance, property_value))
-
-    return output  # Return the list of tuples containing Crystal objects and their properties
+    return [(crystal_instance, property_value)]

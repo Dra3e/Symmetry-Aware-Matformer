@@ -31,6 +31,15 @@ class GraphEmbedder(nn.Module):
         """
         atom_features = self.atom_embedding.forward(graph.nodes)
         edge_features = self.edge_transform.forward(graph.edges)
+
+        from_indices = edge_features[:, 0].long() # Extract indices of from nodes
+        to_indices = edge_features[:, 1].long() # Extract indices of to nodes
+        from_node_emb = atom_features[from_indices] # Get embedded from nodes
+        to_node_emb = atom_features[to_indices] # Get embedded to nodes
+        
+        # Replace only the first 2 elements of the edge tuples
+        edge_features = torch.cat((from_node_emb.unsqueeze(1), to_node_emb.unsqueeze(1), edge_features[:, 2:]), dim=1)
+
         return atom_features, edge_features
 
 class CGCNN(nn.Module):
