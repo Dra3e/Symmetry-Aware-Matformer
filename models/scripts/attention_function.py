@@ -79,9 +79,11 @@ class AttentionFunction(nn.Module):
         # Symmetry modifier: 1 + (W_sym * e_sym) * edge
         sym_proj = self.split_heads(self.symmetry(edge[3]))        # (H, N, D)
         symmetry = 1 + sym_proj * edge_trans                       # (H, N, D)
+        symmetry = symmetry.repeat(1, 1, 3)                        # Expand to (H, N, 3D)
 
         # Validity modifier: sigmoid(gradient * (mask - 0.5))
-        m_valid = torch.sigmoid(torch.tensor(gradient) * (edge[4] - 0.5)).view(1, N, 1)
+        m_valid = torch.sigmoid(gradient * (edge[4] - 0.5))  # (N, D)
+        m_valid = m_valid.unsqueeze(0).repeat(1, 1, 3)  # (1, N, 3D)
 
         # Final attention weights: combine base alpha with modifiers
         alpha = alpha * symmetry * m_valid  # (H, N, 3D)

@@ -152,7 +152,7 @@ def get_training_data(property_type, json_path: str):
     )
 
     # Convert to tensors
-    A = torch.tensor([[site.specie.number] for site in structure.sites], dtype=torch.float32)
+    A = torch.tensor([[site.specie.number] for site in structure.sites], dtype=torch.int64)
     X = torch.tensor(structure.cart_coords, dtype=torch.float32)
     L = torch.tensor(structure.lattice.matrix, dtype=torch.float32)
 

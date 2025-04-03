@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from mendeleev import element
 
 class GraphEmbedder(nn.Module):
     """ Script class for embedding crystal graphs"""
@@ -15,6 +16,7 @@ class GraphEmbedder(nn.Module):
         super().__init__()
         self.atom_embedding = CGCNN(atom_feature_dim, hidden_dim)
         self.edge_transform = EdgeTransformation(num_rbf_kernels, hidden_dim)
+        self.hidden_dim = hidden_dim
     
     def forward(self, graph):
         """
@@ -29,16 +31,37 @@ class GraphEmbedder(nn.Module):
             atom_features (torch.Tensor): Node feature matrix.
             edge_features (torch.Tensor): Edge feature matrix.
         """
+        if isinstance(graph.edges, torch.Tensor):
+            edges = graph.edges
+        else:
+            edges = torch.tensor(graph.edges, dtype=torch.float32)
+        
         atom_features = self.atom_embedding.forward(graph.nodes)
-        edge_features = self.edge_transform.forward(graph.edges)
+        transformed_distances = self.edge_transform.forward(edges)
 
-        from_indices = edge_features[:, 0].long() # Extract indices of from nodes
-        to_indices = edge_features[:, 1].long() # Extract indices of to nodes
+        from_indices = edges[:, 0].long() # Extract indices of from nodes
+        to_indices = edges[:, 1].long() # Extract indices of to nodes
         from_node_emb = atom_features[from_indices] # Get embedded from nodes
         to_node_emb = atom_features[to_indices] # Get embedded to nodes
         
-        # Replace only the first 2 elements of the edge tuples
-        edge_features = torch.cat((from_node_emb.unsqueeze(1), to_node_emb.unsqueeze(1), edge_features[:, 2:]), dim=1)
+        raw_edge_values = edges[:, 3:6].float()  # Now shape is (E, 3)
+
+        # Expand all 3 values (sym, valid, i_index) across hidden_dim
+        raw_edge_expanded = raw_edge_values.unsqueeze(-1).repeat(1, 1, self.hidden_dim)
+
+        edge_type   = raw_edge_expanded[:, 0:1, :]  # m_sym
+        edge_valid  = raw_edge_expanded[:, 1:2, :]  # m_valid
+        edge_index  = raw_edge_expanded[:, 2:3, :]  # i_index
+
+        # Concatenate all together
+        edge_features = torch.cat((
+            from_node_emb.unsqueeze(1),
+            to_node_emb.unsqueeze(1),
+            transformed_distances.unsqueeze(1),
+            edge_type,
+            edge_valid,
+            edge_index
+        ), dim=1)
 
         return atom_features, edge_features
 
@@ -54,6 +77,7 @@ class CGCNN(nn.Module):
             hidden_dim (int): Dimension of the output node embeddings.
         """
         super().__init__()
+        self.lookup = AtomFeatureLookup(input_dim)
         self.embedding = nn.Linear(input_dim, hidden_dim)  # Learnable transformation
 
     def forward(self, A):
@@ -69,7 +93,45 @@ class CGCNN(nn.Module):
         Returns:
             f*_i torch.Tensor: Transformed node feature matrix f*_i of shape (N, h).
         """
-        return self.embedding(A)  # Linear transformation
+        try:
+            atom_numbers = A[:, 0].int()
+        except:
+            raise ValueError("Cannot extract atomic numbers from self.A. Ensure atomic number is in first column.")
+        A_featured = self.lookup(atom_numbers)
+        return self.embedding(A_featured)  # Linear transformation
+    
+class AtomFeatureLookup(nn.Module):
+    def __init__(self, atom_feature_dim=92):
+        super().__init__()
+        self.atom_features = torch.zeros((92, atom_feature_dim))
+
+        for atomic_num in range(1, 93):  # Atomic numbers 1 to 92
+            elem = element(atomic_num)
+            # Example feature vector: atomic number, atomic mass, electronegativity, group, period
+            features = [
+                elem.atomic_number,
+                elem.atomic_weight,
+                elem.electronegativity_pauling(),
+                elem.group_id,
+                elem.period,
+                elem.covalent_radius,
+                elem.vdw_radius,
+                elem.density
+            ]
+            features = [f if f is not None else 0.0 for f in features]
+            # Pad or truncate to the desired feature length
+            features += [0.0] * (atom_feature_dim - len(features))
+            self.atom_features[atomic_num - 1] = torch.tensor(features[:atom_feature_dim], dtype=torch.float32)
+
+    def forward(self, atomic_numbers):
+        """
+        Args:
+            atomic_numbers (torch.Tensor): Tensor of atomic numbers (n_atoms,).
+        
+        Returns:
+            torch.Tensor: Atom features (n_atoms, atom_feature_dim).
+        """
+        return self.atom_features[atomic_numbers - 1]  # Adjust for zero-indexing
 
 class EdgeTransformation(nn.Module):
     """
@@ -108,14 +170,12 @@ class EdgeTransformation(nn.Module):
             transformed_edges (torch.Tensor): replaces the distance in the edge list with the transformed distance.
                 - transformed_edges: [i, j, transformed_distance, type, valid]
         """
-        distances = edges[:, :, 2].unsqueeze(-1)
+
+        distances = edges[:, 2].unsqueeze(-1)
         expanded_distances = self.rbf_expansion(distances) # RBF Expansion
         transformed_distances = self.activation(self.linear(expanded_distances)) # Linear transformation + Softplus 
 
-        transformed_edges = edges.clone()
-        transformed_edges[:, :, 2] = transformed_distances.squeeze(-1)
-
-        return transformed_edges
+        return transformed_distances
 
 
 class RBF(nn.Module):
@@ -157,4 +217,5 @@ class RBF(nn.Module):
             D_expanded: Expanded distance matrix of shape.
         """
         D_expanded = D.unsqueeze(-1)  # Add extra dimension for broadcasting
-        return torch.exp(-self.gamma * (D_expanded - self.centers) ** 2)  # Compute RBF transformation
+        output = torch.exp(-self.gamma * (D_expanded - self.centers) ** 2)  # Compute RBF transformation
+        return output.squeeze(1)

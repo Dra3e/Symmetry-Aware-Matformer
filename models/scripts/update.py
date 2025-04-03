@@ -13,6 +13,7 @@ class Update(nn.Module):
         """
         super(Update, self).__init__()
         self.weight = nn.Linear(input_dim, hidden_dim, bias=False)  # Linear transform without bias for weight
+        self.weight_projection = nn.Linear(input_dim, hidden_dim, bias=False)  # Projection for aggregated_input
         self.LN = nn.Linear(hidden_dim, hidden_dim)
         self.layer_norm = nn.LayerNorm(hidden_dim)
 
@@ -29,6 +30,8 @@ class Update(nn.Module):
         Returns:
             updated_features (torch.tensor): An updated list of atom features.
         """
+        # Project aggregated_input to match the feature dimension of atom_features
+        aggregated_input = self.weight_projection(aggregated_input)
         
         ln_transformed = self.LN(aggregated_input + self.weight(atom_features))
         updated_features = self.layer_norm(ln_transformed)

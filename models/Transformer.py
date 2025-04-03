@@ -60,11 +60,23 @@ class Transformer(nn.Module):
                 end = min(start + chunk_size, num_nodes) # End index for chunking
                 node_chunk = atom_features[start:end] # Chunk of node features
 
-                related_edges = (edge_features[:, 0] >= start) & (edge_features[:, 0] < end) # Get related edges for the chunk
+                from_indices = edge_features[:, 5, 0].long()
+                related_edges = (from_indices >= start) & (from_indices < end) # Get related edges for the chunk
                 edge_chunk = edge_features[related_edges]  # Chunk of edge features
 
                 # Step 3: Calculate attention score and aggreate
-                m_chunk = self.transformer_layer.forward(node_chunk, edge_chunk, self.gradient) # Process the chunk using transformer layer
+                # edge_chunk shape: (E', 6, hidden_dim)
+                f_i          = edge_chunk[:, 0, :]  # Destination node features
+                f_j          = edge_chunk[:, 1, :]  # Source node features
+                e_ij         = edge_chunk[:, 2, :]  # Edge feature vector
+                e_sym        = edge_chunk[:, 3, :]  # Symmetry information
+                e_mask       = edge_chunk[:, 4, :]  # Edge validity
+                target_index = edge_chunk[:, 5, 0].long()  # Target node indices
+
+                edge_tuple = (f_i, f_j, e_ij, e_sym, e_mask, target_index)
+
+                m_chunk = self.transformer_layer.forward(node_chunk, edge_tuple, self.gradient)
+
                 m_features_list.append(m_chunk) # Append the processed chunk to the list
 
             # Step 4: Concatenate all chunked features

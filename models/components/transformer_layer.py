@@ -45,13 +45,8 @@ class TransformerLayer(nn.Module):
 
         alpha, value = self.attention_function((f_i, f_j, e_ij, e_sym, e_mask), gradient)  # (H, N, D)
 
-        # Permute to (N, H, D) so we can batch-multiply per edge (N) with per-head weights (H, D, D)
-        # value: (H, N, D) → (N, H, D)
-        value = value.permute(1, 0, 2)
-
         # Linear transformation per head
-        transformed = torch.einsum("nhd,hdf->nhf", value, self.linear_weight) + self.linear_bias.unsqueeze(1)
-        transformed = transformed.permute(1, 0, 2)  # (H, N, D)
+        transformed = torch.einsum("hnd,hdf->hnf", value, self.linear_weight) + self.linear_bias.unsqueeze(1)
 
         # Apply attention weights
         weighted = alpha * transformed  # (H, N, D)
