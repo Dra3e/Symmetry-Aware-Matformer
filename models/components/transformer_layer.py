@@ -4,57 +4,86 @@ from torch_scatter import scatter
 from models.scripts.attention_function import AttentionFunction
 
 class TransformerLayer(nn.Module):
-    """ A multi-headed transformer layer """
-    def __init__(self, hidden_dim, head_size):
+    """
+    A multi-headed transformer layer that computes edge-based attention
+    and aggregates messages per node.
+    
+    Input node features:     [M, D]
+    Input edge features:     [N, 6, D]
+    Output node features:    [M, D]
+    """
+    def __init__(self, hidden_dim, head_size, gradient):
         """
-        Initializes TransformerLayer instance.
-
         Args:
-            hidden_dim (int): Dimension of node features.
-            head_size (int): Number of attention heads.
+            hidden_dim (int): Dimension D of node and edge features.
+            head_size (int): Number of attention heads H.
+            gradient (float): Scaling for soft-masking invalid edges.
         """
-        super(TransformerLayer, self).__init__()
-        self.head_size = head_size
-        self.feature_dim = hidden_dim * 3  # From attention: value_i + value_j + edge
+        super().__init__()
+        self.hidden_dim = hidden_dim  # D
+        self.head_size = head_size   # H
+        self.gradient = gradient
 
+        self.feature_dim = hidden_dim * 3  # 3D (from value_i + value_j + edge)
+        self.feature_dim_per_head = self.feature_dim // head_size  # 3D / H
+
+        # Multi-head attention function
         self.attention_function = AttentionFunction(hidden_dim, head_size)
 
-        # Per-head linear weights and bias: (H, D, D)
-        self.linear_weight = nn.Parameter(torch.randn(head_size, self.feature_dim, self.feature_dim))
-        self.linear_bias = nn.Parameter(torch.zeros(head_size, self.feature_dim))
+        # Learnable per-head linear transform: one per head
+        # Projects each value vector: (3D/H) → (3D/H)
+        self.linear_weight = nn.Parameter(torch.randn(
+            head_size, self.feature_dim_per_head, self.feature_dim_per_head
+        ))  # Shape: (H, 3D/H, 3D/H)
 
-    def forward(self, node_chunk, edge_chunk, gradient):
+        self.linear_bias = nn.Parameter(torch.zeros(
+            head_size, self.feature_dim_per_head
+        ))  # Shape: (H, 3D/H)
+
+        # Final projection: collapse from 3D → D after aggregation
+        self.out_projection = nn.Linear(self.feature_dim, hidden_dim)
+
+    def forward(self, node_chunk, edge_chunk):
         """
-        Calculates the influence of neighboring atoms using attention.
-
         Args:
-            node_chunk (torch.Tensor): [M, hidden_dim] Node features for a chunk of M nodes.
-            edge_chunk (tuple): Tuple of edge data with:
-                edge_chunk[0] (f_i): [N, D] features of destination nodes
-                edge_chunk[1] (f_j): [N, D] features of source nodes
-                edge_chunk[2] (e_ij): [N, D] edge feature vector
-                edge_chunk[3] (e_sym): [N, D] symmetry info
-                edge_chunk[4] (e_mask): [N, D] edge validity
-                edge_chunk[5] (target_index): [N] index of the destination node in `node_chunk`
-            gradient (float or tensor): Determines how much invalid edges affect attention.
-
+            node_chunk: [M, D]  — features for M nodes
+            edge_chunk: [N, 6, D] — edge info:
+                [:, 0, :] = f_i     [N, D]  → destination node features
+                [:, 1, :] = f_j     [N, D]  → source node features
+                [:, 2, :] = e_ij    [N, D]  → edge features
+                [:, 3, 0] = e_sym   [N]     → symmetry indicator
+                [:, 4, 0] = e_mask  [N]     → validity mask
+                [:, 5, 0] = tgt_idx [N]     → indices into node_chunk
         Returns:
-            torch.Tensor: [M, feature_dim] The aggregated message for each node in node_chunk.
+            m_i_chunk: [M, D] → aggregated message per node
         """
-        f_i, f_j, e_ij, e_sym, e_mask, target_index = edge_chunk
+        # Compute multi-head attention and value output
+        alpha, value = self.attention_function(edge_chunk, self.gradient)
+        # alpha, value: [H, N, 3D/H]
 
-        alpha, value = self.attention_function((f_i, f_j, e_ij, e_sym, e_mask), gradient)  # (H, N, D)
+        # Apply linear transform to each head's values:
+        # value:      [H, N, 3D/H]
+        # weight:     [H, 3D/H, 3D/H]
+        # bias:       [H, 3D/H]
+        transformed = torch.einsum("hnd,hdf->hnf", value, self.linear_weight) + self.linear_bias.unsqueeze(1)  # [H, N, 3D/H]
 
-        # Linear transformation per head
-        transformed = torch.einsum("hnd,hdf->hnf", value, self.linear_weight) + self.linear_bias.unsqueeze(1)
+        # Weight values using attention coefficients
+        weighted = alpha * transformed  # [H, N, 3D/H]
 
-        # Apply attention weights
-        weighted = alpha * transformed  # (H, N, D)
+        # Reshape and merge heads: [H, N, 3D/H] → [N, 3D]
+        m_i_per_edge = weighted.permute(1, 0, 2).reshape(-1, self.feature_dim)
 
-        # Sum across heads → (N, D)
-        m_i_per_edge = weighted.sum(dim=0)
+        # Scatter to sum messages per destination node:
+        # m_i_per_edge: [N, 3D] → aggregated: [M, 3D]
+        m_i_chunk = scatter(
+            m_i_per_edge,
+            edge_chunk[:, 5, 0].long(),
+            dim=0,
+            dim_size=node_chunk.size(0), # num_nodes = node_chunk.size(0)
+            reduce='sum'
+        )
 
-        # Aggregate per node using target_index → (M, D)
-        m_i_chunk = scatter(m_i_per_edge, target_index, dim=0, dim_size=node_chunk.size(0), reduce='sum')
+        # Final projection from 3D → D
+        m_i_chunk = self.out_projection(m_i_chunk)  # [M, D]
 
         return m_i_chunk

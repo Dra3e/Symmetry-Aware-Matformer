@@ -158,5 +158,7 @@ def get_training_data(property_type, json_path: str):
 
     # Create Crystal object
     crystal_instance = Crystal(A, X, L)
+    crystal_list = []
+    crystal_list.append(crystal_instance)
 
-    return [(crystal_instance, property_value)]
+    return crystal_list, property_value

@@ -91,9 +91,10 @@ class Crystal:
         cell = (lattice, positions, numbers) # Create crystal structure tuple
 
         dataset = spglib.get_symmetry_dataset(cell) # Get symmetry dataset
+
  
         # Get rotation matrices and convert to torch tensors
-        raw_rotations = dataset['rotations']
+        raw_rotations = dataset.rotations
         identity = torch.eye(3)
 
         # Filter out identity matrix

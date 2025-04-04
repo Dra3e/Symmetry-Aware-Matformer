@@ -21,21 +21,21 @@ def run(property, num_epochs, json_path: str):
     factor_optimizer = torch.optim.Adam([factors], lr=1e-5) # Optimizer for the loss factors
 
     # Create dataset
-    dataset = get_training_data(property, json_path) # Assuming get_training_data() returns a dataset compatible with the model
+    dataset, target_property = get_training_data(property, json_path) # Assuming get_training_data() returns a dataset compatible with the model
 
     # Training loop
     for epoch in range(num_epochs):
         model.train() # Set model to training mode
         epoch_loss = 0.0 # Initialize epoch loss
         
-        for crystal in dataset[0]:  # Iterate over individual crystals since model only supports single input
+        for crystal in dataset:  # Iterate over individual crystals since model only supports single input
             predictions, graphs = model(crystal) # Get prediction and flag from model
-            for i in range(graphs):
+            for i in range(len(graphs)):
                 model_optimizer.zero_grad() # Zero gradients for model optimizer
                 factor_optimizer.zero_grad() # Zero gradients for factor optimizer
                 
                 # Forward pass through the model
-                target = dataset[1] # Get target property from crystal
+                target = target_property # Get target property from crystal
                 
                 # Compute loss values
                 loss_property = LossProperty(predictions[i], target) 

@@ -17,23 +17,26 @@ class AttentionFunction(nn.Module):
         self.feature_dim = hidden_dim * 3  # For value: value_i + value_j + edge
 
         # Linear projections for each input, packed across all heads
-        self.query = nn.Linear(hidden_dim, head_size * hidden_dim)
-        self.key_i = nn.Linear(hidden_dim, head_size * hidden_dim)
-        self.key_j = nn.Linear(hidden_dim, head_size * hidden_dim)
-        self.value_i = nn.Linear(hidden_dim, head_size * hidden_dim)
-        self.value_j = nn.Linear(hidden_dim, head_size * hidden_dim)
-        self.edge    = nn.Linear(hidden_dim, head_size * hidden_dim)
+        self.query = nn.Linear(hidden_dim, hidden_dim)
+        self.key_i = nn.Linear(hidden_dim, hidden_dim)
+        self.key_j = nn.Linear(hidden_dim, hidden_dim)
+        self.value_i = nn.Linear(hidden_dim, hidden_dim)
+        self.value_j = nn.Linear(hidden_dim, hidden_dim)
+        self.edge    = nn.Linear(hidden_dim, hidden_dim)
 
         # Normalization applied before sigmoid attention activation
-        self.layer_norm = nn.LayerNorm(self.feature_dim * head_size)
+        self.layer_norm = nn.LayerNorm(self.feature_dim)
 
         # Linear transform for edge symmetry contribution (no bias)
-        self.symmetry = nn.Linear(hidden_dim, head_size * hidden_dim, bias=False)
+        self.symmetry = nn.Linear(1, hidden_dim, bias=False)
 
     def split_heads(self, x):
-        # Reshape input from (N, H*D) → (H, N, D) for multi-head parallelism
+        # Input: (N, D)
+        # Output: (H, N, D/H)
         N = x.size(0)
-        return x.view(N, self.num_heads, self.hidden_dim).permute(1, 0, 2)
+        head_dim = self.hidden_dim // self.num_heads
+        x = x.view(N, self.num_heads, head_dim)  # (N, H, D/H)
+        return x.permute(1, 0, 2)  # (H, N, D/H)
 
     def forward(self, edge, gradient):
         """
@@ -50,42 +53,53 @@ class AttentionFunction(nn.Module):
             gradient (float): Controls how much attention to give to invalid edges (higher = less).
 
         Returns:
-            alpha (Tensor): Attention weights, shape (H, N, 3D)
-            value_C (Tensor): Value matrix, shape (H, N, 3D)
+            alpha (Tensor): Attention weights, shape (H, N, 3D/H)
+            value_C (Tensor): Value matrix, shape (H, N, 3D/H)
         """
-        N = edge[0].size(0)
+        N = edge.size(0)
+        head_dim = self.hidden_dim // self.num_heads
+        feature_dim_per_head = 3 * head_dim
+
+        f_i     = edge[:, 0, :]  # (N, D)
+        f_j     = edge[:, 1, :]  # (N, D)
+        e_ij    = edge[:, 2, :]  # (N, D)
+        m_sym   = edge[:, 3, 0]  # (N,)
+        m_valid = edge[:, 4, 0]  # (N,)
 
         # Apply linear projections and reshape for each head
-        query     = self.split_heads(self.query(edge[0]))      # (H, N, D)
-        key_i     = self.split_heads(self.key_i(edge[0]))
-        key_j     = self.split_heads(self.key_j(edge[1]))
-        value_i   = self.split_heads(self.value_i(edge[0]))
-        value_j   = self.split_heads(self.value_j(edge[1]))
-        edge_trans= self.split_heads(self.edge(edge[2]))
+        query      = self.split_heads(self.query(f_i))       # (H, N, D/H)
+        key_i      = self.split_heads(self.key_i(f_i))
+        key_j      = self.split_heads(self.key_j(f_j))
+        value_i    = self.split_heads(self.value_i(f_i))
+        value_j    = self.split_heads(self.value_j(f_j))
+        edge_trans = self.split_heads(self.edge(e_ij))
 
-        # Concatenate inputs for attention and value computation
-        query_C = torch.cat((query, query, query), dim=-1)          # (H, N, 3D)
-        key_C   = torch.cat((key_i, key_j, edge_trans), dim=-1)     # (H, N, 3D)
-        value_C = torch.cat((value_i, value_j, edge_trans), dim=-1) # (H, N, 3D)
+        # Concatenate features along the last dimension
+        query_C = torch.cat((query, query, query), dim=-1)          # (H, N, 3D/H)
+        key_C   = torch.cat((key_i, key_j, edge_trans), dim=-1)     # (H, N, 3D/H)
+        value_C = torch.cat((value_i, value_j, edge_trans), dim=-1) # (H, N, 3D/H)
 
-        # Raw attention score (dot product scaled by dim)
-        d = key_C.size(-1)
-        alpha_raw = query_C * key_C / d                             # (H, N, 3D)
+        # Raw attention score (element-wise product)
+        d = key_C.size(-1)  # = 3D/H
+        alpha_raw = query_C * key_C / d                             # (H, N, 3D/H)
 
-        # LayerNorm + sigmoid activation on raw attention scores
-        alpha = torch.sigmoid(self.layer_norm(alpha_raw.permute(1, 0, 2).reshape(N, -1)))
-        alpha = alpha.view(N, self.num_heads, self.feature_dim).permute(1, 0, 2)  # (H, N, 3D)
+        # LayerNorm + sigmoid
+        alpha = alpha_raw.permute(1, 0, 2).reshape(N, -1)           # (N, 3D)
+        alpha = torch.sigmoid(self.layer_norm(alpha))              # (N, 3D)
+        alpha = alpha.view(N, self.num_heads, feature_dim_per_head).permute(1, 0, 2)  # (H, N, 3D/H)
 
-        # Symmetry modifier: 1 + (W_sym * e_sym) * edge
-        sym_proj = self.split_heads(self.symmetry(edge[3]))        # (H, N, D)
-        symmetry = 1 + sym_proj * edge_trans                       # (H, N, D)
-        symmetry = symmetry.repeat(1, 1, 3)                        # Expand to (H, N, 3D)
+        # Symmetry projection: (N,) → (N, 1) → (H, N, D/H)
+        m_sym = m_sym.unsqueeze(-1)  # (N, 1)
+        sym_proj = self.split_heads(self.symmetry(m_sym))          # (H, N, D/H)
+        symmetry = 1 + sym_proj * edge_trans                       # (H, N, D/H)
+        symmetry = symmetry.repeat(1, 1, 3)                         # (H, N, 3D/H)
 
-        # Validity modifier: sigmoid(gradient * (mask - 0.5))
-        m_valid = torch.sigmoid(gradient * (edge[4] - 0.5))  # (N, D)
-        m_valid = m_valid.unsqueeze(0).repeat(1, 1, 3)  # (1, N, 3D)
+        # Validity modifier
+        m_valid = torch.sigmoid(gradient * (m_valid - 0.5))         # (N,)
+        m_valid = m_valid.unsqueeze(0).unsqueeze(-1)                # (1, N, 1)
+        m_valid = m_valid.repeat(1, 1, feature_dim_per_head)        # (1, N, 3D/H)
 
-        # Final attention weights: combine base alpha with modifiers
-        alpha = alpha * symmetry * m_valid  # (H, N, 3D)
+        # Final attention weights
+        alpha = alpha * symmetry * m_valid                          # (H, N, 3D/H)
 
-        return alpha, value_C
+        return alpha, value_C  # both (H, N, 3D/H)

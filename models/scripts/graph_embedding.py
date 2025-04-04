@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from collections import namedtuple
 from mendeleev import element
 
 class GraphEmbedder(nn.Module):
@@ -44,24 +45,19 @@ class GraphEmbedder(nn.Module):
         from_node_emb = atom_features[from_indices] # Get embedded from nodes
         to_node_emb = atom_features[to_indices] # Get embedded to nodes
         
-        raw_edge_values = edges[:, 3:6].float()  # Now shape is (E, 3)
+        # Dynamic edge attributes from column 3 onward
+        raw_edge_values = edges[:, 3:].float()  # (E, N)
+        expanded_attrs = raw_edge_values.unsqueeze(-1).expand(-1, -1, self.hidden_dim)
+        expanded_attrs = expanded_attrs.permute(1, 0, 2)
+        print(f"expanded_attrs shape: {expanded_attrs.shape}")
 
-        # Expand all 3 values (sym, valid, i_index) across hidden_dim
-        raw_edge_expanded = raw_edge_values.unsqueeze(-1).repeat(1, 1, self.hidden_dim)
-
-        edge_type   = raw_edge_expanded[:, 0:1, :]  # m_sym
-        edge_valid  = raw_edge_expanded[:, 1:2, :]  # m_valid
-        edge_index  = raw_edge_expanded[:, 2:3, :]  # i_index
-
-        # Concatenate all together
-        edge_features = torch.cat((
-            from_node_emb.unsqueeze(1),
-            to_node_emb.unsqueeze(1),
-            transformed_distances.unsqueeze(1),
-            edge_type,
-            edge_valid,
-            edge_index
-        ), dim=1)
+        # Directly stack the tensors instead of creating a list of tuples
+        edge_features = torch.stack([
+            from_node_emb,             # (number_of_edges, hidden_dim)
+            to_node_emb,               # (number_of_edges, hidden_dim)
+            transformed_distances,     # (number_of_edges, hidden_dim)
+            *expanded_attrs  # Already of shape (number_of_edges, N, hidden_dim)
+        ], dim=1)  # Shape: (number_of_edges, 6, hidden_dim)
 
         return atom_features, edge_features
 
@@ -98,6 +94,7 @@ class CGCNN(nn.Module):
         except:
             raise ValueError("Cannot extract atomic numbers from self.A. Ensure atomic number is in first column.")
         A_featured = self.lookup(atom_numbers)
+
         return self.embedding(A_featured)  # Linear transformation
     
 class AtomFeatureLookup(nn.Module):
@@ -218,4 +215,5 @@ class RBF(nn.Module):
         """
         D_expanded = D.unsqueeze(-1)  # Add extra dimension for broadcasting
         output = torch.exp(-self.gamma * (D_expanded - self.centers) ** 2)  # Compute RBF transformation
+
         return output.squeeze(1)
