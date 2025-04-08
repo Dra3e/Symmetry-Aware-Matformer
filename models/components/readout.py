@@ -32,4 +32,4 @@ class Readout(nn.Module):
         updated_features = self.update.forward(aggregated_input, atom_features)
         pooled_features = self.global_pooling.forward(updated_features)
         prediction = self.predicted_property.forward(pooled_features)
-        return prediction
+        return prediction, pooled_features

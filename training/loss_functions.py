@@ -8,12 +8,11 @@ def LossProperty(actual_Y, predicted_Y):
     else:
         raise ValueError("Inputs are not the same size!")
 
-def LossContrastive(actual_F, predicted_F, flag_list, margin):
+def LossContrastive(actual_F, predicted_F, flag, margin):
     """Contrastive Loss using Euclidean distance"""
-    if actual_F.shape == predicted_F.shape and actual_F.shape[0] == flag_list.shape[0]:
-        flag_list = flag_list.float() # PyTorch’s autograd system expects tensors involved in gradient computations to be float32 unless explicitly stated otherwise.
-        distances = torch.norm(actual_F - predicted_F, dim=1)
-        loss = ((1 - flag_list) * (distances ** 2)) + (flag_list * torch.clamp(margin - distances, min=0) ** 2)
+    if actual_F.shape == predicted_F.shape:
+        distances = torch.norm(actual_F - predicted_F, dim=0)
+        loss = ((1 - flag) * (distances ** 2)) + (flag * torch.clamp(margin - distances, min=0) ** 2)
         return torch.mean(loss)
     else:
         raise ValueError("Inputs are not the same size!")

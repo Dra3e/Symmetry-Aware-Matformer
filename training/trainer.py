@@ -4,11 +4,9 @@ from models.Transformer import Transformer
 from training.loss_functions import LossContrastive, LossFactor, LossProperty, LossTotal
 from training.dataset import get_training_data
 
-def run(property, num_epochs, json_path: str):
+def run(property, json_path: str, num_epochs = 100):
     # Hyperparameters
     learning_rate = 1e-4 # Initial learning rate for the model
-    num_epochs = 100 # Number of epochs for training
-    batch_size = 32 # Batch size for training
     margin = 1.0  # Contrastive loss margin
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # Use GPU if available
 
@@ -29,17 +27,17 @@ def run(property, num_epochs, json_path: str):
         epoch_loss = 0.0 # Initialize epoch loss
         
         for crystal in dataset:  # Iterate over individual crystals since model only supports single input
-            predictions, graphs = model(crystal) # Get prediction and flag from model
+            predictions, latenspace_f, graphs = model(crystal) # Get prediction and flag from model
             for i in range(len(graphs)):
                 model_optimizer.zero_grad() # Zero gradients for model optimizer
                 factor_optimizer.zero_grad() # Zero gradients for factor optimizer
                 
                 # Forward pass through the model
-                target = target_property # Get target property from crystal
-                
+                target = torch.tensor(target_property, dtype=torch.float32, device=device)
+
                 # Compute loss values
-                loss_property = LossProperty(predictions[i], target) 
-                loss_contrastive = LossContrastive(predictions[i], target, graphs[i].m_valid, margin)
+                loss_property = LossProperty(target, predictions[i].squeeze()) 
+                loss_contrastive = LossContrastive(latenspace_f[0], latenspace_f[i], graphs[i].m_valid, margin)
                 both_losses = torch.stack([loss_property, loss_contrastive])
                 model_loss = LossTotal(both_losses, factors)
                 
@@ -48,8 +46,8 @@ def run(property, num_epochs, json_path: str):
                 model_optimizer.step()
                 
                 # Compute and update loss factors separately
-                loss_factor_property = LossFactor(loss_property, factors[0])
-                loss_factor_contrastive = LossFactor(loss_contrastive, factors[1])
+                loss_factor_property = LossFactor(loss_property.detach(), factors[0])
+                loss_factor_contrastive = LossFactor(loss_contrastive.detach(), factors[1])
                 
                 # Backpropagate each loss separately to update only respective factors
                 loss_factor_property.backward(retain_graph=True)  # Updates only factors[0]

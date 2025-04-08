@@ -2,69 +2,69 @@ import json
 import pickle
 import random
 import torch
-from mp_api.client import MPRester
+# from mp_api.client import MPRester
 from models.components.crystal import Crystal
 from pymatgen.core import Structure
 from pathlib import Path
 
 API_KEY = "exOmUg204h1fbQsVK65z9U5YLGXK453p"
 
-def fetch_crystals_from_mp(crystals):
-    """
-    Fetches a specified number of crystal structures from the Materials Project database using the MPRester API.
-    Filters the crystals based on certain criteria (e.g., stable crystals with 2-5 elements) and saves them into JSON files.
-    """
-    total_crystals = crystals  # Total number of crystals to fetch from Materials Project
-    batch_size = 100  # Number of crystals to fetch in each API call (batch size)
+# def fetch_crystals_from_mp(crystals):
+#     """
+#     Fetches a specified number of crystal structures from the Materials Project database using the MPRester API.
+#     Filters the crystals based on certain criteria (e.g., stable crystals with 2-5 elements) and saves them into JSON files.
+#     """
+#     total_crystals = crystals  # Total number of crystals to fetch from Materials Project
+#     batch_size = 100  # Number of crystals to fetch in each API call (batch size)
 
-    all_crystals = []  # List to store all fetched crystals
-    num_fetched = 0  # Counter to track how many crystals have been fetched so far
+#     all_crystals = []  # List to store all fetched crystals
+#     num_fetched = 0  # Counter to track how many crystals have been fetched so far
 
-    # Using the MPRester class to interact with Materials Project API
-    with MPRester(API_KEY) as mpr:
-        while num_fetched < total_crystals:
-            # Search for crystals based on certain criteria (e.g., stable crystals with 2-5 elements)
-            docs = mpr.materials.search(
-                fields = [  # Fields to retrieve for each material
-                    'builder_meta', 'nsites', 'elements', 'nelements', 'composition', 'composition_reduced', 
-                    'formula_pretty', 'formula_anonymous', 'chemsys', 'volume', 'density', 'density_atomic', 
-                    'symmetry', 'material_id', 'structure', 'deprecated', 'deprecation_reasons', 'initial_structures', 
-                    'task_ids', 'deprecated_tasks', 'calc_types', 'last_updated', 'created_at', 'origins', 'warnings', 
-                    'task_types', 'run_types', 'entries'
-                ],
-                # energy_above_hull = (0, 0.1),  # Filter for stable crystals (energy above hull <= 0.1)
-                # num_elements = (2, 5),  # Only fetch crystals with 2 to 5 elements
-                chunk_size = batch_size,  # Number of crystals per request (batch size)
-                # offset = num_fetched  # Offset to keep track of how many have been fetched so far
-            )
+#     # Using the MPRester class to interact with Materials Project API
+#     with MPRester(API_KEY) as mpr:
+#         while num_fetched < total_crystals:
+#             # Search for crystals based on certain criteria (e.g., stable crystals with 2-5 elements)
+#             docs = mpr.materials.search(
+#                 fields = [  # Fields to retrieve for each material
+#                     'builder_meta', 'nsites', 'elements', 'nelements', 'composition', 'composition_reduced', 
+#                     'formula_pretty', 'formula_anonymous', 'chemsys', 'volume', 'density', 'density_atomic', 
+#                     'symmetry', 'material_id', 'structure', 'deprecated', 'deprecation_reasons', 'initial_structures', 
+#                     'task_ids', 'deprecated_tasks', 'calc_types', 'last_updated', 'created_at', 'origins', 'warnings', 
+#                     'task_types', 'run_types', 'entries'
+#                 ],
+#                 # energy_above_hull = (0, 0.1),  # Filter for stable crystals (energy above hull <= 0.1)
+#                 # num_elements = (2, 5),  # Only fetch crystals with 2 to 5 elements
+#                 chunk_size = batch_size,  # Number of crystals per request (batch size)
+#                 # offset = num_fetched  # Offset to keep track of how many have been fetched so far
+#             )
 
-            if not docs:
-                break  # If no more results are returned, exit the loop
+#             if not docs:
+#                 break  # If no more results are returned, exit the loop
 
-            # Extend the list of all crystals with the newly fetched docs
-            all_crystals.extend(docs)
-            num_fetched += len(docs)  # Update the counter for the number of crystals fetched
-            print(f"Fetched {num_fetched} crystals so far...")  # Print progress
+#             # Extend the list of all crystals with the newly fetched docs
+#             all_crystals.extend(docs)
+#             num_fetched += len(docs)  # Update the counter for the number of crystals fetched
+#             print(f"Fetched {num_fetched} crystals so far...")  # Print progress
 
-    print(f"Total crystals fetched: {len(all_crystals)}")  # Print total number of fetched crystals
+#     print(f"Total crystals fetched: {len(all_crystals)}")  # Print total number of fetched crystals
 
-    random.shuffle(all_crystals)  # Shuffle the list to ensure randomness in the dataset
+#     random.shuffle(all_crystals)  # Shuffle the list to ensure randomness in the dataset
 
-    # Split the data into training and evaluation sets (80% for training, 20% for evaluation)
-    split_index = int(0.8 * len(all_crystals))  # Index for splitting the dataset
-    train_data = all_crystals[:split_index]  # First 80% for training
-    eval_data = all_crystals[split_index:]  # Remaining 20% for evaluation
+#     # Split the data into training and evaluation sets (80% for training, 20% for evaluation)
+#     split_index = int(0.8 * len(all_crystals))  # Index for splitting the dataset
+#     train_data = all_crystals[:split_index]  # First 80% for training
+#     eval_data = all_crystals[split_index:]  # Remaining 20% for evaluation
 
-    # Save the training and evaluation data into separate JSON files
-    with open("train_crystals.json", "w") as f:
-        json.dump(train_data, f, indent=4)  # Write training data to a JSON file
+#     # Save the training and evaluation data into separate JSON files
+#     with open("train_crystals.json", "w") as f:
+#         json.dump(train_data, f, indent=4)  # Write training data to a JSON file
 
-    with open("eval_crystals.json", "w") as f:
-        json.dump(eval_data, f, indent=4)  # Write evaluation data to a JSON file
+#     with open("eval_crystals.json", "w") as f:
+#         json.dump(eval_data, f, indent=4)  # Write evaluation data to a JSON file
 
-    # Print the sizes of the datasets
-    print(f"Training set: {len(train_data)} crystals")
-    print(f"Evaluation set: {len(eval_data)} crystals")
+#     # Print the sizes of the datasets
+#     print(f"Training set: {len(train_data)} crystals")
+#     print(f"Evaluation set: {len(eval_data)} crystals")
 
 def convert_pkl_to_json(pkl_path: str, json_path: str):
     """

@@ -49,7 +49,7 @@ class GraphEmbedder(nn.Module):
         raw_edge_values = edges[:, 3:].float()  # (E, N)
         expanded_attrs = raw_edge_values.unsqueeze(-1).expand(-1, -1, self.hidden_dim)
         expanded_attrs = expanded_attrs.permute(1, 0, 2)
-        print(f"expanded_attrs shape: {expanded_attrs.shape}")
+        # print(f"expanded_attrs shape: {expanded_attrs.shape}")
 
         # Directly stack the tensors instead of creating a list of tuples
         edge_features = torch.stack([
