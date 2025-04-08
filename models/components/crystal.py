@@ -78,8 +78,13 @@ class Crystal:
         Assumes first column of A is atomic number or other unique identifier per atom type.
 
         Returns:
-            symmetry_operations: List of 3x3 rotation matrices representing symmetry operations.
+            rotation_matrices: List of 3x3 rotation matrices (torch.Tensor) representing symmetry operations.
+            translation_vectors: List of 3D translation vectors (torch.Tensor) corresponding to each rotation.
         """
+        import numpy as np
+        import torch
+        import spglib
+
         # Convert torch tensors to numpy
         lattice = self.L.numpy()
         positions = self.X.numpy() @ np.linalg.inv(lattice)  # fractional coords
@@ -88,20 +93,26 @@ class Crystal:
         except:
             raise ValueError("Cannot extract atomic numbers from self.A. Ensure atomic number is in first column.")
 
-        cell = (lattice, positions, numbers) # Create crystal structure tuple
+        # Create crystal structure tuple for spglib
+        cell = (lattice, positions, numbers)
 
-        dataset = spglib.get_symmetry_dataset(cell) # Get symmetry dataset
+        # Get symmetry dataset from spglib
+        dataset = spglib.get_symmetry_dataset(cell)
 
- 
-        # Get rotation matrices and convert to torch tensors
-        raw_rotations = dataset.rotations
+        # Extract rotations and translations
+        raw_rotations = dataset.rotations        # shape: (N, 3, 3)
+        raw_translations = dataset.translations  # shape: (N, 3)
+
         identity = torch.eye(3)
 
-        # Filter out identity matrix
-        rotation_matrices = [
-            torch.tensor(R, dtype=torch.float32)
-            for R in raw_rotations
-            if not torch.allclose(torch.tensor(R, dtype=torch.float32), identity)
-        ]
+        rotation_matrices = []
+        translation_vectors = []
 
-        return rotation_matrices
+        for R, t in zip(raw_rotations, raw_translations):
+            R_tensor = torch.tensor(R, dtype=torch.float32)
+            t_tensor = torch.tensor(t, dtype=torch.float32)
+            if not torch.allclose(R_tensor, identity):  # Filter out identity rotation
+                rotation_matrices.append(R_tensor)
+                translation_vectors.append(t_tensor)
+
+        return rotation_matrices, translation_vectors

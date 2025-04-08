@@ -24,12 +24,13 @@ class CrystalGraph(nn.Module):
         self.m_valid = m_valid # Validity marker for edges
 
     @classmethod
-    def init_from_crystal(cls, crystal, m_valid=1, config=3.0):
+    def init_from_crystal(cls, crystal, translation_vectors, m_valid=1, config=3.0):
         """
         Creates a CrystalGraph instance from a given crystal structure.
 
         Args:
             crystal (models.components.Crystal): A crystal object containing atomic information.
+            translation_vectors (torch.tensor): Tensor of shape (n, 3) containing translation vectors for the crystal.
             m_valid (int): Value to determine if the graph is a valid representation of a crystal
                 1: if true
                 0: if false
@@ -41,16 +42,10 @@ class CrystalGraph(nn.Module):
         nodes = crystal.A # Atomic feature matrix
         num_nodes = nodes.shape[0]
         edges = []
-        translation_offsets = torch.tensor([
-            [0, 0, 0],
-            [1, 0, 0], [-1, 0, 0],
-            [0, 1, 0], [0, -1, 0],
-            [0, 0, 1], [0, 0, -1]
-        ], dtype=torch.float32)
 
         for i in range(num_nodes):
             for j in range(i, num_nodes): # include i==j to allow self-loops if needed
-                for t in translation_offsets:
+                for t in translation_vectors:
                     translated = crystal.X[j] + t @ crystal.L # Apply translation to get surrounding unit cells
                     distance = torch.norm(crystal.X[i] - translated) # Compute distance between atoms
                     if distance <= config: # Only keep edges within cutoff distance
@@ -61,13 +56,14 @@ class CrystalGraph(nn.Module):
         return cls(nodes=nodes, edges=edges, config=config)
     
     @classmethod
-    def init_from_augmented_crystal(cls, original_crystal, augmented_crystals, m_valid=1, config=3.0):
+    def init_from_augmented_crystal(cls, original_crystal, augmented_crystals, translation_vectors, m_valid=1, config=3.0):
         """
         Creates a CrystalGraph with additional self-loop edges for atomic displacements.
         
         Args:
             original_crystal (models.components.Crystal): The original unaugmented crystal structure.
             augmented_crystals: A list of augmented versions of the crystal.
+            translation_vectors: Tensor of shape (n, 3) containing translation vectors for the crystal.
             m_valid (int): Value to determine if the graph is a valid representation of a crystal
                 1: if true
                 0: if false
@@ -76,7 +72,7 @@ class CrystalGraph(nn.Module):
         Returns:
             CrystalGraph instance with augmented self-loops.
         """
-        base_graph = cls.init_from_crystal(original_crystal, config, m_valid)
+        base_graph = cls.init_from_crystal(original_crystal, translation_vectors, config, m_valid)
         nodes = base_graph.nodes
         edges = base_graph.edges.copy()
         num_nodes = nodes.shape[0]
@@ -89,12 +85,13 @@ class CrystalGraph(nn.Module):
         return cls(nodes=nodes, edges=edges, config=config)
 
     @staticmethod
-    def create_batch(crystals, m_valid=1):
+    def create_batch(crystals, translation_vectors, m_valid=1):
         """
         Creates a batch of CrystalGraph objects from a list of crystals.
 
         Args:
             crystals: List of crystal structures.
+            translation_vectors: Tensor of shape (n, 3) containing translation vectors for the crystal.
             m_valid (int): Value to determine if the graph is a valid representation of a crystal
                 1: if true
                 0: if false
@@ -102,4 +99,4 @@ class CrystalGraph(nn.Module):
         Returns:
             List of CrystalGraph instances.
         """
-        return [CrystalGraph.init_from_crystal(crystal, m_valid) for crystal in crystals]
+        return [CrystalGraph.init_from_crystal(crystal, translation_vectors, m_valid) for crystal in crystals]
