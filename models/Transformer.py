@@ -44,7 +44,7 @@ class Transformer(nn.Module):
 
         valid_crystal_graph = CrystalGraph.init_from_augmented_crystal(C, augmented_valid_crystals, valid_translations, 1) # Initialize crystal graphs from augmented crystals
 
-        # invalid_symmetry_operations = []
+        # Invalid_symmetry_operations
         invalid_symmetry_operations = self.invalid_augmenter.forward(valid_symmetry_operations)
         augmented_invalid_crystals = C.apply_augmentations(invalid_symmetry_operations) # Apply augmentations to the crystal
         invalid_crystal_graphs = CrystalGraph.create_batch(augmented_invalid_crystals, valid_translations, 0) # Initialize crystal graphs from invalid crystals
@@ -56,14 +56,14 @@ class Transformer(nn.Module):
 
         for graph in graphs:
             # Step 1: Feature Initialization
-            atom_features, edge_features = self.graph_embedder(graph)
+            atom_features, edge_features = self.graph_embedder(graph) # Shapes: [N, hidden_dim] and [num_edges, 6, hidden_dim]
 
             # Step 2: Process Nodes and Edges in Chunks
             m_features_list = []
             num_nodes = atom_features.shape[0] # Number of nodes in the graph
             for start in range(0, num_nodes, chunk_size): 
                 end = min(start + chunk_size, num_nodes) # End index for chunking
-                node_chunk = atom_features[start:end] # Chunk of node features
+                node_chunk = atom_features[start:end] # Shape: [chunk_size, hidden_dim] Chunk of node features
 
                 # Edge filtering
                 related_edges = (edge_features[:, 5, 0] >= start) & (edge_features[:, 5, 0] < end) # Get related edges for the chunk
@@ -72,7 +72,7 @@ class Transformer(nn.Module):
                 edge_chunk = edge_features[related_edges]  # Chunk of edge features
 
                 # Step 3: Calculate attention score and aggreate
-                m_chunk = self.transformer_layer.forward(node_chunk, edge_chunk)
+                m_chunk = self.transformer_layer.forward(node_chunk, edge_chunk) # Shape: [chunk_size, hidden_dim] Processed chunk of node features
                     
                 m_features_list.append(m_chunk) # Append the processed chunk to the list
 
@@ -84,4 +84,4 @@ class Transformer(nn.Module):
             predicted_properties.append(y_property) # Append the predicted property to the list
             predicted_F.append(F_pooled) # Append the predicted F to the list
 
-        return predicted_properties, predicted_F, graphs
+        return torch.stack(predicted_properties), torch.stack(predicted_F), graphs
