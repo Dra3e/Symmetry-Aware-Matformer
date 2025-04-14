@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from collections import namedtuple
 from mendeleev import element
+from tqdm import tqdm 
 
 class GraphEmbedder(nn.Module):
     """ Script class for embedding crystal graphs"""
@@ -29,8 +30,8 @@ class GraphEmbedder(nn.Module):
             graph (models.components.CrystalGraph): CrystalGraph instance containing nodes and edges.
 
         Returns:
-            atom_features (torch.Tensor): Node feature matrix.
-            edge_features (torch.Tensor): Edge feature matrix.
+            atom_features (torch.Tensor): [N, hidden_dim] Node feature matrix.
+            edge_features (torch.Tensor): [num_edges, 6, hidden_dim] Edge feature matrix.
         """
         if isinstance(graph.edges, torch.Tensor):
             edges = graph.edges

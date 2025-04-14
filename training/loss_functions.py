@@ -4,16 +4,15 @@ import torch.nn as nn
 def LossProperty(actual_Y, predicted_Y):
     """Mean Squared Error Loss"""
     if actual_Y.shape == predicted_Y.shape:
-        return torch.mean((actual_Y - predicted_Y) ** 2)
+        return (actual_Y - predicted_Y) ** 2
     else:
         raise ValueError("Inputs are not the same size!")
 
-def LossContrastive(actual_F, predicted_F, flag, margin):
+def LossContrastive(actual_F, predicted_F, flag, threshold):
     """Contrastive Loss using Euclidean distance"""
     if actual_F.shape == predicted_F.shape:
-        distances = torch.norm(actual_F - predicted_F, dim=0)
-        loss = ((1 - flag) * (distances ** 2)) + (flag * torch.clamp(margin - distances, min=0) ** 2)
-        return torch.mean(loss)
+        distances = torch.norm(actual_F - predicted_F, dim=1)
+        return (flag * (distances ** 2)) + ((1 - flag) * torch.clamp(threshold - distances, min=0) ** 2)
     else:
         raise ValueError("Inputs are not the same size!")
 

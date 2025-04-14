@@ -7,7 +7,8 @@ def main():
     # extract_crystal_from_pkl("data/bulk_megnet_train.pkl", "data/test_crystal.json", 1)
     # extract_crystal_from_pkl("data/bulk_megnet_train.pkl", "data/validation_crystal.json", 2)
     print("Start of Training!")
-    run("gap pbe", "data/bulk_megnet_train.json", "data/bulk_megnet_val.json", 50)
+    # run("gap pbe", "data/bulk_megnet_train.json", "data/bulk_megnet_val.json", 50)
+    run("gap pbe", "data/test_crystal.json", "data/validation_crystal.json", 10)
 
 if __name__ == "__main__":
     main()
