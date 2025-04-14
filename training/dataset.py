@@ -119,51 +119,51 @@ def extract_crystal_from_pkl(pkl_path: str, json_path: str, crystal_id):
 
     print(f"Saved crystal '{crystal_id}' to {json_file}")
 
+# def get_training_data(property_type, json_path: str):
+#     """
+#     Takes a single crystal dictionary (with 'atoms' format), extracts the specified property,
+#     and returns a list with one tuple: (Crystal object, property value).
+
+#     Args:
+#         property_type (str): The name of the property to extract (e.g., 'gap pbe').
+#         crystal_data (dict): A single crystal entry in the custom format.
+
+#     Returns:
+#         list: A list containing one tuple: (Crystal, property_value)
+#     """
+#     with open(json_path, "r") as f:
+#         crystal_data = json.load(f)
+
+#     # Get the property value
+#     property_value = crystal_data.get(property_type, None)
+#     if property_value is None:
+#         print(f"Warning: {property_type} not found in entry {crystal_data.get('id', 'unknown')}")
+#         return []
+
+#     # Extract atoms section
+#     atoms = crystal_data["atoms"]
+
+#     # Build pymatgen Structure object
+#     structure = Structure(
+#         lattice=atoms["lattice_mat"],
+#         species=atoms["elements"],
+#         coords=atoms["coords"],
+#         coords_are_cartesian=atoms.get("cartesian", False)
+#     )
+
+#     # Convert to tensors
+#     A = torch.tensor([[site.specie.number] for site in structure.sites], dtype=torch.int64)
+#     X = torch.tensor(structure.cart_coords, dtype=torch.float32)
+#     L = torch.tensor(structure.lattice.matrix, dtype=torch.float32)
+
+#     # Create Crystal object
+#     crystal_instance = Crystal(A, X, L)
+#     crystal_list = []
+#     crystal_list.append(crystal_instance)
+
+#     return crystal_list, property_value
+
 def get_training_data(property_type, json_path: str):
-    """
-    Takes a single crystal dictionary (with 'atoms' format), extracts the specified property,
-    and returns a list with one tuple: (Crystal object, property value).
-
-    Args:
-        property_type (str): The name of the property to extract (e.g., 'gap pbe').
-        crystal_data (dict): A single crystal entry in the custom format.
-
-    Returns:
-        list: A list containing one tuple: (Crystal, property_value)
-    """
-    with open(json_path, "r") as f:
-        crystal_data = json.load(f)
-
-    # Get the property value
-    property_value = crystal_data.get(property_type, None)
-    if property_value is None:
-        print(f"Warning: {property_type} not found in entry {crystal_data.get('id', 'unknown')}")
-        return []
-
-    # Extract atoms section
-    atoms = crystal_data["atoms"]
-
-    # Build pymatgen Structure object
-    structure = Structure(
-        lattice=atoms["lattice_mat"],
-        species=atoms["elements"],
-        coords=atoms["coords"],
-        coords_are_cartesian=atoms.get("cartesian", False)
-    )
-
-    # Convert to tensors
-    A = torch.tensor([[site.specie.number] for site in structure.sites], dtype=torch.int64)
-    X = torch.tensor(structure.cart_coords, dtype=torch.float32)
-    L = torch.tensor(structure.lattice.matrix, dtype=torch.float32)
-
-    # Create Crystal object
-    crystal_instance = Crystal(A, X, L)
-    crystal_list = []
-    crystal_list.append(crystal_instance)
-
-    return crystal_list, property_value
-
-def get_crystals_and_properties(property_type, json_path: str):
     """
     Processes multiple crystals from a JSON file, extracts their property values,
     and stores all valid crystals in one list and their property values in another.

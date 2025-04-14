@@ -40,7 +40,7 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, le
     factor_optimizer = torch.optim.Adam([factors], lr=1e-5) # Optimizer for the loss factors
 
     # Create dataset
-    dataset, target_property = get_training_data(property, training_path) # Assuming get_training_data() returns a dataset compatible with the model
+    dataset, target_properties = get_training_data(property, training_path) # Assuming get_training_data() returns a dataset compatible with the model
     val_dataset, val_target_property = get_training_data(property, validation_path)
 
     best_val_loss = float('inf')
@@ -52,14 +52,14 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, le
             model.train() # Set model to training mode
             epoch_loss = 0.0 # Initialize epoch loss
             
-            for crystal in dataset:  # Iterate over individual crystals since model only supports single input
+            for crystal, target_value in zip(dataset, target_properties):  # Iterate over individual crystals since model only supports single input
                 predictions, latenspace_f, graphs = model(crystal) # Get prediction and flag from model
                 for i in range(0, len(graphs)-1):
                     model_optimizer.zero_grad() # Zero gradients for model optimizer
                     factor_optimizer.zero_grad() # Zero gradients for factor optimizer
                     
                     # Forward pass through the model
-                    target = torch.tensor(target_property, dtype=torch.float32, device=device)
+                    target = torch.tensor(target_value, dtype=torch.float32, device=device)
 
                     # Compute loss values
                     latent0 = latenspace_f[0].clone() # .backward() complains when a parameter is reused without cloning
