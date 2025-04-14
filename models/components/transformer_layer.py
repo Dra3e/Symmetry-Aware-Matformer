@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torch_scatter import scatter
 from models.scripts.attention_function import AttentionFunction
 
 class TransformerLayer(nn.Module):
@@ -75,12 +74,18 @@ class TransformerLayer(nn.Module):
 
         # Scatter to sum messages per destination node:
         # m_i_per_edge: [N, 3D] → aggregated: [M, 3D]
-        m_i_chunk = scatter(
-            m_i_per_edge,
-            edge_chunk[:, 5, 0].long(),
-            dim=0,
-            dim_size=node_chunk.size(0), # num_nodes = node_chunk.size(0)
-            reduce='sum'
+        m_i_chunk = torch.zeros(
+            node_chunk.size(0),  # num nodes (M)
+            m_i_per_edge.size(1),  # feature size (3D)
+            device=m_i_per_edge.device,
+            dtype=m_i_per_edge.dtype
+        )
+
+        # Use scatter_add to accumulate values across nodes
+        m_i_chunk.scatter_add(
+            0,  # Dimension for accumulation
+            edge_chunk[:, 5, 0].long().unsqueeze(1).expand(-1, m_i_per_edge.size(1)),  # Indices, expanded to match feature size
+            m_i_per_edge  # Values to add
         )
 
         # Final projection from 3D → D
