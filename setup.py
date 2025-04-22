@@ -20,6 +20,21 @@ def main():
         print("No files found in the data directory. Please add some data files.")
         return
     
+    base_path = os.path.dirname(os.path.abspath(__file__))  # Path to the base directory
+
+    data_folder = os.path.join(base_path, "data")
+    results_folder = os.path.join(base_path, "training", "results")
+
+    for folder in [data_folder, results_folder]:
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+            print(f"Created missing folder: {folder}")
+
+    # Check again if the data folder is empty (in case it was created just now)
+    if not os.listdir(data_folder):
+        print("The 'data' folder is empty. Please add some data files before running the program.")
+        return
+
     run_program = True
     while(run_program):
         print(

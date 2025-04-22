@@ -7,7 +7,7 @@ class InvalidAugmenter:
     '''Script class for getting all unique symmetry operations for the crystals and a method that returns all symmetry operations that are not valid'''
     def __init__(self):
         all_rotations = set()
-        for i in tqdm.tqdm(range(1, 231), desc="Processing Datasets", unit="dataset"): # Loops through all of the hall numbers, and creates a loading bar in the terminal
+        for i in tqdm.tqdm(range(1, 231), desc="Processing Symmetry Datasets", unit="hall marks"): # Loops through all of the hall numbers, and creates a loading bar in the terminal
             dataset = spglib.get_symmetry_from_database(hall_number=i) # Get symmetry operations from the database
 
             if dataset is None:
