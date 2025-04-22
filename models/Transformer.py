@@ -69,7 +69,9 @@ class Transformer(nn.Module):
                 related_edges = (edge_features[:, 5, 0] >= start) & (edge_features[:, 5, 0] < end) # Get related edges for the chunk
 
                 # Filter each field in edge_features (Transformer processing)
-                edge_chunk = edge_features[related_edges]  # Chunk of edge features
+                edge_chunk = edge_features[related_edges].clone()  # Chunk of edge features
+                # subtract the chunk’s start position to make it 0…M‑1
+                edge_chunk[:, 5, :] -= start 
 
                 # Step 3: Calculate attention score and aggreate
                 m_chunk = self.transformer_layer.forward(node_chunk, edge_chunk) # Shape: [chunk_size, hidden_dim] Processed chunk of node features
