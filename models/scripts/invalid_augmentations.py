@@ -28,6 +28,9 @@ class InvalidAugmenter:
             torch.Tensor: Tensor of shape [K, 3, 3], where K is the number of unique symmetry
                           matrices from the spglib database that are not in the input list.
         '''
+        if not crystals_valid_augmentation_matrices:
+            return torch.stack(self.all_valid)
+        
         # Stack all known valid symmetry ops from spglib into a tensor
         all_valid_tensor = torch.stack(self.all_valid) # Shape: [N, 3, 3] where N is the number of known unique symmetry operations
 
