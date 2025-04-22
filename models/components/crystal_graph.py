@@ -43,15 +43,28 @@ class CrystalGraph(nn.Module):
         num_nodes = nodes.shape[0]
         edges = []
 
+        # --------------------------------------------------
+        # 1) Edges inside the unit cell
+        # --------------------------------------------------
         for i in range(num_nodes):
-            for j in range(i, num_nodes): # include i==j to allow self-loops if needed
-                for t in translation_vectors:
-                    translated = crystal.X[j] + t @ crystal.L # Apply translation to get surrounding unit cells
-                    distance = torch.norm(crystal.X[i] - translated) # Compute distance between atoms
-                    if distance <= config: # Only keep edges within cutoff distance
-                        edges.append([i, j, distance.item(), 0, m_valid, i])
-                        if i != j:
-                            edges.append([j, i, distance.item(), 0, m_valid, j])  # undirected edges
+            for j in range(i, num_nodes):                       # i ≤ j
+                distance = torch.norm(crystal.X[i] - crystal.X[j])
+                if distance <= config:
+                    edges.append([i, j, distance.item(), 0, m_valid, j])  # dest=j
+                    if i != j:                                           # undirected
+                        edges.append([j, i, distance.item(), 0, m_valid, i])
+
+        # --------------------------------------------------
+        # 2) Edges for periodicity, if any
+        # --------------------------------------------------
+        for t in translation_vectors:              # may be an empty list
+            vec = t @ crystal.L                    # 3‑vector
+            for i in range(num_nodes):
+                for j in range(num_nodes):
+                    translated = crystal.X[j] + vec
+                    distance   = torch.norm(crystal.X[i] - translated)
+                    if distance <= config:
+                        edges.append([i, j, distance.item(), 0, m_valid, j])
 
         return cls(nodes=nodes, edges=edges, config=config)
     
