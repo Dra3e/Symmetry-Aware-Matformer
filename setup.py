@@ -18,14 +18,6 @@ def main():
     else:
         torch.set_default_tensor_type(torch.FloatTensor)
     
-    # Get available data and weight files
-    data_files = get_files_from_directory(DATA_PATH)
-    weight_files = get_files_from_directory(WEIGHTS_PATH)
-
-    if not data_files:
-        print("No files found in the data directory. Please add some data files.")
-        return
-    
     base_path = os.path.dirname(os.path.abspath(__file__))  # Path to the base directory
 
     data_folder = os.path.join(base_path, "data")
@@ -39,6 +31,14 @@ def main():
     # Check again if the data folder is empty (in case it was created just now)
     if not os.listdir(data_folder):
         print("The 'data' folder is empty. Please add some data files before running the program.")
+        return
+
+    # Get available data and weight files
+    data_files = get_files_from_directory(DATA_PATH)
+    weight_files = get_files_from_directory(WEIGHTS_PATH)
+
+    if not data_files:
+        print("No files found in the data directory. Please add some data files.")
         return
 
     run_program = True
