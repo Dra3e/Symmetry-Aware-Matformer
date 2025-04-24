@@ -11,7 +11,7 @@ def LossProperty(actual_Y, predicted_Y):
 def LossContrastive(actual_F, predicted_F, flag, threshold):
     """Contrastive Loss using Euclidean distance"""
     if actual_F.shape == predicted_F.shape:
-        distances = torch.norm(actual_F - predicted_F, dim=1)
+        distances = torch.norm(actual_F - predicted_F, dim=0)
         return (flag * (distances ** 2)) + ((1 - flag) * torch.clamp(threshold - distances, min=0) ** 2)
     else:
         raise ValueError("Inputs are not the same size!")

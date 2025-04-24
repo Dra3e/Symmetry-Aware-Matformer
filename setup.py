@@ -8,10 +8,16 @@ from training.dataset import get_training_data
 
 DATA_PATH = "data"
 WEIGHTS_PATH = "training/results"
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 def main():
     """Main entry point for the program."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if device.type == "cuda":
+        torch.set_default_tensor_type(torch.cuda.FloatTensor)
+    else:
+        torch.set_default_tensor_type(torch.FloatTensor)
+    
     # Get available data and weight files
     data_files = get_files_from_directory(DATA_PATH)
     weight_files = get_files_from_directory(WEIGHTS_PATH)
@@ -20,6 +26,21 @@ def main():
         print("No files found in the data directory. Please add some data files.")
         return
     
+    base_path = os.path.dirname(os.path.abspath(__file__))  # Path to the base directory
+
+    data_folder = os.path.join(base_path, "data")
+    results_folder = os.path.join(base_path, "training", "results")
+
+    for folder in [data_folder, results_folder]:
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+            print(f"Created missing folder: {folder}")
+
+    # Check again if the data folder is empty (in case it was created just now)
+    if not os.listdir(data_folder):
+        print("The 'data' folder is empty. Please add some data files before running the program.")
+        return
+
     run_program = True
     while(run_program):
         print(
@@ -115,6 +136,7 @@ def setup_training(data_files):
         except ValueError:
             print("Invalid input. Using default settings.")
 
+    print("Training...")
     run(
         property_mapping[property_names[chosen_property]],
         training_path=os.path.join(DATA_PATH, data_files[test_choice]),
@@ -155,18 +177,19 @@ def setup_run(device, data_files, weight_files):
     checkpoint = torch.load(os.path.join(WEIGHTS_PATH, weight_files[model_choice]), map_location=device)
     model = Transformer().to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
-    model.to(device)
+    model
 
     # Re-wrap the saved tensor as a Parameter
     factors = checkpoint['factors'].to(device)
     
     target_property = checkpoint['property']
     threshold = checkpoint['threshold']
-    
+    print("Loading model...")
     dataset, target_properties = get_training_data(target_property, os.path.join(DATA_PATH, data_files[data_choice]))
     
     eval_loader = DataLoader(list(zip(dataset, target_properties)), batch_size=25, shuffle=False, collate_fn=custom_collate_fn)
 
+    print("Computing loss...")
     eval_loss = compute_loss(model, eval_loader, factors, device, threshold)
     print(f"The MSA = {eval_loss}")
     input("Press Enter to continue > ")        

@@ -3,7 +3,7 @@ import datetime
 from torch.utils.data import DataLoader
 from models.Transformer import Transformer  
 from training.loss_functions import LossContrastive, LossFactor, LossProperty, LossTotal
-from training.dataset import get_training_data
+from training.dataset import get_training_data_from_pkl
 from training.evaluator import compute_loss
 from tqdm import tqdm 
 
@@ -24,10 +24,23 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
     factor_optimizer = torch.optim.Adam([factors], lr=1e-5) # Optimizer for the loss factors
 
     # Create dataset
-    dataset, target_properties = get_training_data(property, training_path) # Assuming get_training_data() returns a dataset and property value lit compatible with the model
-    eval_dataset, eval_target_properties = get_training_data(property, validation_path)
-    data_loader = DataLoader(list(zip(dataset, target_properties)), batch_size=batch_size, shuffle=True, collate_fn=custom_collate_fn)
-    eval_loader = DataLoader(list(zip(eval_dataset, eval_target_properties)), batch_size=batch_size, shuffle=False, collate_fn=custom_collate_fn)
+    dataset, target_properties = get_training_data_from_pkl(property, training_path) # Assuming get_training_data() returns a dataset and property value lit compatible with the model
+    assert all(c is not None for c in dataset), "❌ 'dataset' contains None values!"
+    assert all(tp is not None for tp in target_properties), "❌ 'dataset' contains None values!"
+    eval_dataset, eval_target_properties = get_training_data_from_pkl(property, validation_path)
+    assert all(c is not None for c in eval_dataset), "❌ 'eval_dataset' contains None values!"
+    data_loader = DataLoader(
+        list(zip(dataset, target_properties)),
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=custom_collate_fn,
+        generator=torch.Generator(device=device))
+    eval_loader = DataLoader(
+        list(zip(eval_dataset, eval_target_properties)),
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=custom_collate_fn,
+        generator=torch.Generator(device=device))
 
     best_eval_loss = float('inf')
     best_model_state = None
@@ -39,38 +52,47 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
             epoch_loss = 0.0 # Initialize epoch loss
 
             for crystals, target_values in tqdm(data_loader, desc="Training on crystals", unit="crystal"):
-                # Move targets to device
+                # Move crystals and targets to device
+                crystals = [c.to(device) for c in crystals]  # Move each crystal to the device
                 target_values = target_values.to(device)
 
                 # Forward pass
                 results = [model(c) for c in crystals]
-                predictions, latentspace_f, graphs_batch = zip(*results)
-                predictions = torch.stack(predictions)         # [B, N]
-                latentspace_f = torch.stack(latentspace_f)     # [B, N, D]
-                graphs_batch = list(graphs_batch)              # keep as list if needed individually
+                batch_property_losses = []
+                batch_contrastive_losses = []
 
+                for i, (predictions, latents, graphs) in enumerate(results):
+                    # Get the target value for this crystal
+                    target = target_values[i]  # scalar
 
-                # Initialize accumulators
-                all_loss_property = []
-                all_loss_contrastive = []
+                    crystal_property_losses = []
+                    crystal_contrastive_losses = []
 
-                # We'll stack all per-graph losses into one big batch operation
-                for i in range(1, latentspace_f.shape[1]):  # Skip index 0 (reference)
-                    latent0 = latentspace_f[:, 0, :]                  # [B, D]
-                    latenti = latentspace_f[:, i, :]                  # [B, D]
-                    pred_i = predictions[:, i].view(-1)              # [B]
+                    # Use first graph as reference
+                    latent_ref = latents[0]
+                    for j in range(1, len(graphs)):  # skip index 0 (reference)
+                        latent_j = latents[j]
+                        pred_j = predictions[j]
+                        target = target.expand_as(pred_j)
 
-                    m_valid = torch.tensor([g[i].m_valid for g in graphs_batch], dtype=torch.float32, device=device)
+                        m_valid = torch.tensor(graphs[j].m_valid, dtype=torch.float32, device=device)
 
-                    loss_property = LossProperty(target_values, pred_i)               # [B]
-                    loss_contrastive = LossContrastive(latent0, latenti, m_valid, threshold)  # [B]
+                        loss_property = LossProperty(target, pred_j)
+                        loss_contrastive = LossContrastive(latent_ref, latent_j, m_valid, threshold)
 
-                    all_loss_property.append(loss_property)
-                    all_loss_contrastive.append(loss_contrastive)
+                        crystal_property_losses.append(loss_property)
+                        crystal_contrastive_losses.append(loss_contrastive)
 
-                # Stack and mean over all comparisons
-                loss_property_batch = torch.stack(all_loss_property).mean()
-                loss_contrastive_batch = torch.stack(all_loss_contrastive).mean()
+                    # Average per-crystal loss (mean over graphs)
+                    mean_loss_property = torch.stack(crystal_property_losses).mean()
+                    mean_loss_contrastive = torch.stack(crystal_contrastive_losses).mean()
+
+                    batch_property_losses.append(mean_loss_property)
+                    batch_contrastive_losses.append(mean_loss_contrastive)
+
+                # Average over the batch (mean over crystals)
+                loss_property_batch = torch.stack(batch_property_losses).mean()
+                loss_contrastive_batch = torch.stack(batch_contrastive_losses).mean()
 
                 # Combine losses
                 both_losses = torch.tensor([loss_property_batch, loss_contrastive_batch], device=device)

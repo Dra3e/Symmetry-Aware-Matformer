@@ -7,7 +7,7 @@ class InvalidAugmenter:
     '''Script class for getting all unique symmetry operations for the crystals and a method that returns all symmetry operations that are not valid'''
     def __init__(self):
         all_rotations = set()
-        for i in tqdm.tqdm(range(1, 231), desc="Processing Datasets", unit="dataset"): # Loops through all of the hall numbers, and creates a loading bar in the terminal
+        for i in tqdm.tqdm(range(1, 231), desc="Processing Symmetry Datasets", unit="hall marks"): # Loops through all of the hall numbers, and creates a loading bar in the terminal
             dataset = spglib.get_symmetry_from_database(hall_number=i) # Get symmetry operations from the database
 
             if dataset is None:
@@ -28,11 +28,15 @@ class InvalidAugmenter:
             torch.Tensor: Tensor of shape [K, 3, 3], where K is the number of unique symmetry
                           matrices from the spglib database that are not in the input list.
         '''
+        if not crystals_valid_augmentation_matrices:
+            return torch.stack(self.all_valid)
+        
+        device = crystals_valid_augmentation_matrices[0].device
         # Stack all known valid symmetry ops from spglib into a tensor
         all_valid_tensor = torch.stack(self.all_valid) # Shape: [N, 3, 3] where N is the number of known unique symmetry operations
 
         # Stack the input crystal's valid symmetries
-        crystal_valid_tensor = torch.stack(crystals_valid_augmentation_matrices) # Shape: [M, 3, 3] where M is the number of symmetries given
+        crystal_valid_tensor = torch.stack(crystals_valid_augmentation_matrices).to(device=device) # Shape: [M, 3, 3] where M is the number of symmetries given
         
         # Expand dimensions for broadcasting comparison
         # crystals_valid_augmentation_matrices shape: [M, 3, 3]

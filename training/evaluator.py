@@ -8,33 +8,49 @@ def compute_loss(model, eval_loader, factors, device, threshold):
 
     with torch.no_grad():
         for crystals, target_values in eval_loader:
+            # Move crystals and targets to device
+            crystals = [c.to(device) for c in crystals]  # Move each crystal to the device
             target_values = target_values.to(device)
 
+            # Forward pass
             results = [model(c) for c in crystals]
-            predictions, latentspace_f, graphs_batch = zip(*results)
-            predictions = torch.stack(predictions)
-            latentspace_f = torch.stack(latentspace_f)
-            graphs_batch = list(graphs_batch)
+            batch_property_losses = []
+            batch_contrastive_losses = []
 
-            all_loss_property = []
-            all_loss_contrastive = []
+            for i, (predictions, latents, graphs) in enumerate(results):
+                # Get the target value for this crystal
+                target = target_values[i]  # scalar
 
-            for i in range(1, latentspace_f.shape[1]):  # Skip reference (index 0)
-                latent0 = latentspace_f[:, 0, :]       # [B, D]
-                latenti = latentspace_f[:, i, :]       # [B, D]
-                pred_i = predictions[:, i].view(-1)             # [B]
+                crystal_property_losses = []
+                crystal_contrastive_losses = []
 
-                m_valid = torch.tensor([g[i].m_valid for g in graphs_batch], dtype=torch.float32, device=device)
+                # Use first graph as reference
+                latent_ref = latents[0]
+                for j in range(1, len(graphs)):  # skip index 0 (reference)
+                    latent_j = latents[j]
+                    pred_j = predictions[j]
+                    target = target.expand_as(pred_j)
 
-                loss_property = LossProperty(target_values, pred_i)
-                loss_contrastive = LossContrastive(latent0, latenti, m_valid, threshold)
+                    m_valid = torch.tensor(graphs[j].m_valid, dtype=torch.float32, device=device)
 
-                all_loss_property.append(loss_property)
-                all_loss_contrastive.append(loss_contrastive)
+                    loss_property = LossProperty(target, pred_j)
+                    loss_contrastive = LossContrastive(latent_ref, latent_j, m_valid, threshold)
 
-            loss_property_batch = torch.stack(all_loss_property).mean()
-            loss_contrastive_batch = torch.stack(all_loss_contrastive).mean()
+                    crystal_property_losses.append(loss_property)
+                    crystal_contrastive_losses.append(loss_contrastive)
 
+                # Average per-crystal loss (mean over graphs)
+                mean_loss_property = torch.stack(crystal_property_losses).mean()
+                mean_loss_contrastive = torch.stack(crystal_contrastive_losses).mean()
+
+                batch_property_losses.append(mean_loss_property)
+                batch_contrastive_losses.append(mean_loss_contrastive)
+
+            # Average over the batch (mean over crystals)
+            loss_property_batch = torch.stack(batch_property_losses).mean()
+            loss_contrastive_batch = torch.stack(batch_contrastive_losses).mean()
+
+            # Combine losses
             both_losses = torch.tensor([loss_property_batch, loss_contrastive_batch], device=device)
             total = LossTotal(both_losses, factors)
 

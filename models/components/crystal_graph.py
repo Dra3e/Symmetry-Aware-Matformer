@@ -23,6 +23,12 @@ class CrystalGraph(nn.Module):
         self.config = config # Cutoff configuration
         self.m_valid = m_valid # Validity marker for edges
 
+        # Ensure edges are a proper tensor and match the device of nodes
+        if isinstance(edges, torch.Tensor):
+            self.edges = edges.to(nodes.device)
+        else:
+            self.edges = torch.tensor(edges, dtype=torch.float32, device=nodes.device)
+
     @classmethod
     def init_from_crystal(cls, crystal, translation_vectors, m_valid=1, config=3.0):
         """
@@ -43,15 +49,28 @@ class CrystalGraph(nn.Module):
         num_nodes = nodes.shape[0]
         edges = []
 
+        # --------------------------------------------------
+        # 1) Edges inside the unit cell
+        # --------------------------------------------------
         for i in range(num_nodes):
-            for j in range(i, num_nodes): # include i==j to allow self-loops if needed
-                for t in translation_vectors:
-                    translated = crystal.X[j] + t @ crystal.L # Apply translation to get surrounding unit cells
-                    distance = torch.norm(crystal.X[i] - translated) # Compute distance between atoms
-                    if distance <= config: # Only keep edges within cutoff distance
-                        edges.append([i, j, distance.item(), 0, m_valid, i])
-                        if i != j:
-                            edges.append([j, i, distance.item(), 0, m_valid, j])  # undirected edges
+            for j in range(i, num_nodes):                       # i ≤ j
+                distance = torch.norm(crystal.X[i] - crystal.X[j])
+                if distance <= config:
+                    edges.append([i, j, distance.item(), 0, m_valid, j])  # dest=j
+                    if i != j:                                           # undirected
+                        edges.append([j, i, distance.item(), 0, m_valid, i])
+
+        # --------------------------------------------------
+        # 2) Edges for periodicity, if any
+        # --------------------------------------------------
+        for t in translation_vectors:              # may be an empty list
+            vec = t @ crystal.L                    # 3‑vector
+            for i in range(num_nodes):
+                for j in range(num_nodes):
+                    translated = crystal.X[j] + vec
+                    distance   = torch.norm(crystal.X[i] - translated)
+                    if distance <= config:
+                        edges.append([i, j, distance.item(), 0, m_valid, j])
 
         return cls(nodes=nodes, edges=edges, config=config)
     
@@ -74,10 +93,12 @@ class CrystalGraph(nn.Module):
         """
         base_graph = cls.init_from_crystal(original_crystal, translation_vectors, config, m_valid)
         nodes = base_graph.nodes
-        edges = base_graph.edges.copy()
+        edges = base_graph.edges.tolist()  # Ensure it's list-compatible to add more rows
         num_nodes = nodes.shape[0]
 
         for aug in augmented_crystals:
+            if aug.X.shape[0] != original_crystal.X.shape[0]:
+                raise ValueError(f"Mismatch in number of atoms: original={original_crystal.X.shape[0]}, aug={aug.X.shape[0]}")
             displacements = torch.norm(aug.X - original_crystal.X, dim=1) # Compute atomic displacements
             for i in range(num_nodes):
                 edges.append([i, i, displacements[i].item(), 1, m_valid, i]) # Self-loop for augmentation tracking
@@ -100,3 +121,8 @@ class CrystalGraph(nn.Module):
             List of CrystalGraph instances.
         """
         return [CrystalGraph.init_from_crystal(crystal, translation_vectors, m_valid) for crystal in crystals]
+    
+    def to(self, device):
+        self.nodes = self.nodes.to(device)
+        self.edges = self.edges.to(device)
+        return self
