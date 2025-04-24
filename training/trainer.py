@@ -51,7 +51,7 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
             model.train() # Set model to training mode
             epoch_loss = 0.0 # Initialize epoch loss
 
-            for crystals, target_values in tqdm(data_loader, desc="Training on crystals", unit="crystal"):
+            for crystals, target_values in tqdm(data_loader, desc="Training on crystals", unit="crystal batches"):
                 # Move crystals and targets to device
                 crystals = [c.to(device) for c in crystals]  # Move each crystal to the device
                 target_values = target_values.to(device)

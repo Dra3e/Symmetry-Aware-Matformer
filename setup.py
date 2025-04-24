@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from training.trainer import run, custom_collate_fn
 from training.evaluator import compute_loss
 from models.Transformer import Transformer
-from training.dataset import get_training_data
+from training.dataset import get_training_data_from_pkl
 
 DATA_PATH = "data"
 WEIGHTS_PATH = "training/results"
@@ -185,7 +185,7 @@ def setup_run(device, data_files, weight_files):
     target_property = checkpoint['property']
     threshold = checkpoint['threshold']
     print("Loading model...")
-    dataset, target_properties = get_training_data(target_property, os.path.join(DATA_PATH, data_files[data_choice]))
+    dataset, target_properties = get_training_data_from_pkl(target_property, os.path.join(DATA_PATH, data_files[data_choice]))
     
     eval_loader = DataLoader(list(zip(dataset, target_properties)), batch_size=25, shuffle=False, collate_fn=custom_collate_fn)
 
