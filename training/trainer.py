@@ -25,9 +25,22 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
 
     # Create dataset
     dataset, target_properties = get_training_data_from_pkl(property, training_path) # Assuming get_training_data() returns a dataset and property value lit compatible with the model
+    assert all(c is not None for c in dataset), "❌ 'dataset' contains None values!"
+    assert all(tp is not None for tp in target_properties), "❌ 'dataset' contains None values!"
     eval_dataset, eval_target_properties = get_training_data_from_pkl(property, validation_path)
-    data_loader = DataLoader(list(zip(dataset, target_properties)), batch_size=batch_size, shuffle=True, collate_fn=custom_collate_fn)
-    eval_loader = DataLoader(list(zip(eval_dataset, eval_target_properties)), batch_size=batch_size, shuffle=False, collate_fn=custom_collate_fn)
+    assert all(c is not None for c in eval_dataset), "❌ 'eval_dataset' contains None values!"
+    data_loader = DataLoader(
+        list(zip(dataset, target_properties)),
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=custom_collate_fn,
+        generator=torch.Generator(device=device))
+    eval_loader = DataLoader(
+        list(zip(eval_dataset, eval_target_properties)),
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=custom_collate_fn,
+        generator=torch.Generator(device=device))
 
     best_eval_loss = float('inf')
     best_model_state = None
@@ -37,9 +50,10 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
         for epoch in range(num_epochs):
             model.train() # Set model to training mode
             epoch_loss = 0.0 # Initialize epoch loss
-        
-            for crystals, target_values in data_loader:
-                # Move targets to device
+
+            for crystals, target_values in tqdm(data_loader, desc="Training on crystals", unit="crystal"):
+                # Move crystals and targets to device
+                crystals = [c.to(device) for c in crystals]  # Move each crystal to the device
                 target_values = target_values.to(device)
 
                 # Forward pass

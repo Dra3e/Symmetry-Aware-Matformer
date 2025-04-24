@@ -31,11 +31,12 @@ class InvalidAugmenter:
         if not crystals_valid_augmentation_matrices:
             return torch.stack(self.all_valid)
         
+        device = crystals_valid_augmentation_matrices[0].device
         # Stack all known valid symmetry ops from spglib into a tensor
         all_valid_tensor = torch.stack(self.all_valid) # Shape: [N, 3, 3] where N is the number of known unique symmetry operations
 
         # Stack the input crystal's valid symmetries
-        crystal_valid_tensor = torch.stack(crystals_valid_augmentation_matrices) # Shape: [M, 3, 3] where M is the number of symmetries given
+        crystal_valid_tensor = torch.stack(crystals_valid_augmentation_matrices).to(device=device) # Shape: [M, 3, 3] where M is the number of symmetries given
         
         # Expand dimensions for broadcasting comparison
         # crystals_valid_augmentation_matrices shape: [M, 3, 3]

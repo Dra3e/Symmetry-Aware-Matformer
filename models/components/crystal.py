@@ -86,10 +86,10 @@ class Crystal:
         import spglib
 
         # Convert torch tensors to numpy
-        lattice = self.L.numpy()
-        positions = self.X.numpy() @ np.linalg.inv(lattice)  # fractional coords
+        lattice = self.L.cpu().numpy()
+        positions = self.X.cpu().numpy() @ np.linalg.inv(lattice)  # fractional coords
         try:
-            numbers = self.A[:, 0].int().numpy()  # Assumes first column of A is atomic number
+            numbers = self.A[:, 0].int().cpu().numpy()  # Assumes first column of A is atomic number
         except:
             raise ValueError("Cannot extract atomic numbers from self.A. Ensure atomic number is in first column.")
 
@@ -116,3 +116,18 @@ class Crystal:
                 translation_vectors.append(t_tensor)
 
         return rotation_matrices, translation_vectors
+    
+    def to(self, device):
+        """
+        Move the crystal structure to the specified device (CPU or GPU).
+
+        Args:
+            device: Device to move the crystal structure to (e.g., 'cpu' or 'cuda').
+
+        Returns:
+            None
+        """
+        self.A = self.A.to(device)
+        self.X = self.X.to(device)
+        self.L = self.L.to(device)
+        return self
