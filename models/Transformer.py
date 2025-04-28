@@ -26,7 +26,7 @@ class Transformer(nn.Module):
         self.readout = Readout(hidden_dim, 1) # Assuming a regression task for property prediction
         self.invalid_augmenter = InvalidAugmenter()
 
-    def forward(self, C, chunk_size=32):
+    def forward(self, C, chunk_size: int = 32):
         """
         Predict the property of a single crystal structure.
 
@@ -36,54 +36,52 @@ class Transformer(nn.Module):
         
         Returns:
             A list of predicted properties for the crystal.
+            A list of predicted latents of atom features for the crystal.
+            The graphs generated for the crystal.
         """
-        valid_symmetry_operations, valid_translations = C.get_symmetry_operations() # Get symmetry operations for the crystal
+        # ---- step 0: build the graph list exactly as today ----
+        valid_syms, valid_trans = C.get_symmetry_operations()
+        aug_valid = C.apply_augmentations(valid_syms)
+        g_valid   = CrystalGraph.init_from_augmented_crystal(C, aug_valid, valid_trans, 1)
 
-        # Graph generation
-        augmented_valid_crystals = C.apply_augmentations(valid_symmetry_operations) # Apply augmentations to the crystal
+        inv_syms  = self.invalid_augmenter.forward(valid_syms)
+        aug_inv   = C.apply_augmentations(inv_syms)
+        g_inv     = CrystalGraph.create_batch(aug_inv, valid_trans, 0)
 
-        valid_crystal_graph = CrystalGraph.init_from_augmented_crystal(C, augmented_valid_crystals, valid_translations, 1) # Initialize crystal graphs from augmented crystals
+        graphs = g_inv + [g_valid]
 
-        # Invalid_symmetry_operations
-        invalid_symmetry_operations = self.invalid_augmenter.forward(valid_symmetry_operations)
-        augmented_invalid_crystals = C.apply_augmentations(invalid_symmetry_operations) # Apply augmentations to the crystal
-        invalid_crystal_graphs = CrystalGraph.create_batch(augmented_invalid_crystals, valid_translations, 0) # Initialize crystal graphs from invalid crystals
+        # ---- step 1-2: embed every graph and concatenate ----
+        atom_blocks, edge_blocks, node_ranges = [], [], []   # keep (start, end) for every graph
+        offset = 0
+        for g in graphs:
+            atoms, edges = self.graph_embedder(g)            # [Ni, D] / [Ei, 6, D]
+            edges = edges.clone()
+            edges[:, 5, 0] += offset                         # ❶ shift destination index
+            atom_blocks.append(atoms)
+            edge_blocks.append(edges)
+            node_ranges.append((offset, offset + atoms.size(0)))
+            offset += atoms.size(0)
 
-        # Combine valid and invalid graphs
-        graphs = invalid_crystal_graphs + [valid_crystal_graph] # Combine valid and invalid graphs
-        predicted_properties = []  # List to store predicted properties
-        predicted_F = []  # List to store predicted F
+        atom_all  = torch.cat(atom_blocks, 0)                # [ΣNi, D]
+        edge_all  = torch.cat(edge_blocks, 0)                # [ΣEi, 6, D]
 
-        for graph in graphs:
-            # Step 1: Feature Initialization
-            atom_features, edge_features = self.graph_embedder(graph) # Shapes: [N, hidden_dim] and [num_edges, 6, hidden_dim]
+        # ---- step 3: run the transformer once, still chunked ----
+        m_all = torch.zeros_like(atom_all)
+        for start in range(0, atom_all.size(0), chunk_size):
+            end = min(start + chunk_size, atom_all.size(0))
+            node_chunk = atom_all[start:end]                 # [M, D]
+            mask       = (edge_all[:, 5, 0] >= start) & (edge_all[:, 5, 0] < end)
+            edge_chunk = edge_all[mask].clone()
+            edge_chunk[:, 5, 0] -= start                     # localise indices
+            m_all[start:end] = self.transformer_layer(node_chunk, edge_chunk)
 
-            # Step 2: Process Nodes and Edges in Chunks
-            m_features_list = []
-            num_nodes = atom_features.shape[0] # Number of nodes in the graph
-            for start in range(0, num_nodes, chunk_size): 
-                end = min(start + chunk_size, num_nodes) # End index for chunking
-                node_chunk = atom_features[start:end] # Shape: [chunk_size, hidden_dim] Chunk of node features
+        # ---- step 4: per-graph read-out ----
+        predicted_properties, predicted_latents = [], []
+        for (beg, end), _g in zip(node_ranges, graphs):
+            m_i   = m_all[beg:end]
+            atoms = atom_all[beg:end]
+            y, F  = self.readout(m_i, atoms)
+            predicted_properties.append(y)
+            predicted_latents.append(F)
 
-                # Edge filtering
-                related_edges = (edge_features[:, 5, 0] >= start) & (edge_features[:, 5, 0] < end) # Get related edges for the chunk
-
-                # Filter each field in edge_features (Transformer processing)
-                edge_chunk = edge_features[related_edges].clone()  # Chunk of edge features
-                # subtract the chunk’s start position to make it 0…M‑1
-                edge_chunk[:, 5, :] -= start 
-
-                # Step 3: Calculate attention score and aggreate
-                m_chunk = self.transformer_layer.forward(node_chunk, edge_chunk) # Shape: [chunk_size, hidden_dim] Processed chunk of node features
-                    
-                m_features_list.append(m_chunk) # Append the processed chunk to the list
-
-            # Step 4: Concatenate all chunked features
-            m_features = torch.cat(m_features_list, dim=0) # Concatenate all processed chunks
-
-            # Step 5: Readout - Pooling and Prediction
-            y_property, F_pooled = self.readout(m_features, atom_features) # Readout layer for pooling and prediction
-            predicted_properties.append(y_property) # Append the predicted property to the list
-            predicted_F.append(F_pooled) # Append the predicted F to the list
-
-        return torch.stack(predicted_properties), torch.stack(predicted_F), graphs
+        return torch.stack(predicted_properties), torch.stack(predicted_latents), graphs
