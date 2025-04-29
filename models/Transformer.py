@@ -85,3 +85,10 @@ class Transformer(nn.Module):
             predicted_latents.append(F)
 
         return torch.stack(predicted_properties), torch.stack(predicted_latents), graphs
+    
+    def to(self, device):
+        self.graph_embedder = self.graph_embedder.to(device)
+        self.transformer_layer = self.transformer_layer.to(device)
+        self.readout = self.readout.to(device)
+        self.invalid_augmenter = self.invalid_augmenter.to(device)
+        return self

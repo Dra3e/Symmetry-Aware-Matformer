@@ -33,3 +33,15 @@ class Readout(nn.Module):
         pooled_features = self.global_pooling.forward(updated_features)
         prediction = self.predicted_property.forward(pooled_features)
         return prediction, pooled_features
+    
+    def to(self, device):
+        """
+        Move the Readout instance to the specified device.
+        
+        Args:
+            device (torch.device): The device to move the instance to.
+        """
+        self.update = self.update.to(device)
+        self.global_pooling = self.global_pooling.to(device)
+        self.predicted_property = self.predicted_property.to(device)
+        return self

@@ -37,3 +37,16 @@ class Update(nn.Module):
         updated_features = self.layer_norm(ln_transformed)
 
         return updated_features
+    
+    def to(self, device):
+        """
+        Move the Update instance to the specified device.
+        
+        Args:
+            device (torch.device): The device to move the instance to.
+        """
+        self.weight = self.weight.to(device)
+        self.weight_projection = self.weight_projection.to(device)
+        self.LN = self.LN.to(device)
+        self.layer_norm = self.layer_norm.to(device)
+        return self

@@ -13,10 +13,6 @@ os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 def main():
     """Main entry point for the program."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if device.type == "cuda":
-        torch.set_default_tensor_type(torch.cuda.FloatTensor)
-    else:
-        torch.set_default_tensor_type(torch.FloatTensor)
     
     base_path = os.path.dirname(os.path.abspath(__file__))  # Path to the base directory
 

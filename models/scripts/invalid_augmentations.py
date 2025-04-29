@@ -15,7 +15,8 @@ class InvalidAugmenter:
             for R in dataset['rotations']:
                 all_rotations.add(tuple(R.flatten())) # Stores all unique rotations in a set to avoid duplicates
 
-        self.all_valid = [torch.tensor(r, dtype=torch.float32).reshape(3, 3) for r in all_rotations] # Converts all unique rotations to PyTorch tensors
+        all_valid = [torch.tensor(r, dtype=torch.float32).reshape(3, 3) for r in all_rotations] # Converts all unique rotations to PyTorch tensors
+        self.all_valid_tensor = torch.stack(all_valid)
     
     def forward(self, crystals_valid_augmentation_matrices):
         '''
@@ -29,14 +30,11 @@ class InvalidAugmenter:
                           matrices from the spglib database that are not in the input list.
         '''
         if not crystals_valid_augmentation_matrices:
-            return torch.stack(self.all_valid)
-        
-        device = crystals_valid_augmentation_matrices[0].device
-        # Stack all known valid symmetry ops from spglib into a tensor
-        all_valid_tensor = torch.stack(self.all_valid) # Shape: [N, 3, 3] where N is the number of known unique symmetry operations
+            return self.all_valid_tensor.clone()
+        all_valid_tensor = self.all_valid_tensor.clone()
 
         # Stack the input crystal's valid symmetries
-        crystal_valid_tensor = torch.stack(crystals_valid_augmentation_matrices).to(device=device) # Shape: [M, 3, 3] where M is the number of symmetries given
+        crystal_valid_tensor = torch.stack(crystals_valid_augmentation_matrices)
         
         # Expand dimensions for broadcasting comparison
         # crystals_valid_augmentation_matrices shape: [M, 3, 3]
@@ -58,4 +56,13 @@ class InvalidAugmenter:
         invalid_indices = torch.where(~is_valid)[0]
         
         return all_valid_tensor[invalid_indices]
+    
+    def to(self, device):
+        """
+        Move the InvalidAugmenter instance to the specified device.
         
+        Args:
+            device (torch.device): The device to move the instance to.
+        """
+        self.all_valid_tensor = self.all_valid_tensor.to(device)
+        return self

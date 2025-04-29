@@ -22,3 +22,12 @@ class GlobalPooling(nn.Module):
         pooled_features = torch.sum(updated_features, dim=0)
 
         return pooled_features
+    
+    def to(self, device):
+        """
+        Move the GlobalPooling instance to the specified device.
+        
+        Args:
+            device (torch.device): The device to move the instance to.
+        """
+        return self

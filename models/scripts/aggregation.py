@@ -28,3 +28,12 @@ class Aggregation(nn.Module):
         m_i = torch.sum(summed_over_heads, dim=0)  # (batch_size, 1)
 
         return m_i
+    
+    def to(self, device):
+        """
+        Move the Aggregation instance to the specified device.
+        
+        Args:
+            device (torch.device): The device to move the instance to.
+        """
+        return self.to(device)

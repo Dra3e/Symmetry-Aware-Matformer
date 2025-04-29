@@ -36,3 +36,14 @@ class PredictedProperty(nn.Module):
         y_property = self.LN2(activated) # Apply second Linear Transformation
 
         return y_property
+    
+    def to(self, device):
+        """
+        Move the PredictedProperty instance to the specified device.
+        
+        Args:
+            device (torch.device): The device to move the instance to.
+        """
+        self.LN1 = self.LN1.to(device)
+        self.LN2 = self.LN2.to(device)
+        return self
