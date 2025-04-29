@@ -7,13 +7,8 @@ def compute_loss(model, eval_loader, factors, device, threshold):
     sample_count = 0
 
     with torch.no_grad():
-        for crystals, target_values in eval_loader:
-            # Move crystals and targets to device
-            crystals = [c.to(device) for c in crystals]  # Move each crystal to the device
-            target_values = target_values.to(device)
-
-            # Forward pass
-            results = [model(c) for c in crystals]
+        for graphs, target_values in eval_loader:                           # graphs = list[list[CrystalGraph]]
+            results = [model([g.to(device) for g in g_list]) for g_list in graphs]  # nested loop to go through the list[list[CrystalGraph]]
             batch_property_losses = []
             batch_contrastive_losses = []
 

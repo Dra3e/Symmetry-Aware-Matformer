@@ -1,10 +1,8 @@
 import torch
 import torch.nn as nn
-from models.components.crystal_graph import CrystalGraph
 from models.components.readout import Readout
 from models.components.transformer_layer import TransformerLayer
 from models.scripts.graph_embedding import GraphEmbedder
-from models.scripts.invalid_augmentations import InvalidAugmenter
 
 class Transformer(nn.Module):
     """ The transformer model for predicting crystal properties. """
@@ -24,14 +22,13 @@ class Transformer(nn.Module):
         self.graph_embedder = GraphEmbedder(atom_feature_dim, hidden_dim, num_rbf_kernels) # Graph embedding layer for atom and edge features
         self.transformer_layer = TransformerLayer(hidden_dim, num_heads, gradient) # Transformer layer for processing node features
         self.readout = Readout(hidden_dim, 1) # Assuming a regression task for property prediction
-        self.invalid_augmenter = InvalidAugmenter()
 
-    def forward(self, C, chunk_size: int = 32):
+    def forward(self, graphs, chunk_size: int = 32):
         """
         Predict the property of a single crystal structure.
 
         Args:
-            C (models.components.Crystal): The crystal structure to predict the property for.
+            graphs: The list of graphs that were generated for a crystal.
             chunk_size (int): The size of the chunks to process the graph in parallel.
         
         Returns:
@@ -39,16 +36,6 @@ class Transformer(nn.Module):
             A list of predicted latents of atom features for the crystal.
             The graphs generated for the crystal.
         """
-        # ---- step 0: build the graph list exactly as today ----
-        valid_syms, valid_trans = C.get_symmetry_operations()
-        aug_valid = C.apply_augmentations(valid_syms)
-        g_valid   = CrystalGraph.init_from_augmented_crystal(C, aug_valid, valid_trans, 1)
-
-        inv_syms  = self.invalid_augmenter.forward(valid_syms)
-        aug_inv   = C.apply_augmentations(inv_syms)
-        g_inv     = CrystalGraph.create_batch(aug_inv, valid_trans, 0)
-
-        graphs = g_inv + [g_valid]
 
         # ---- step 1-2: embed every graph and concatenate ----
         atom_blocks, edge_blocks, node_ranges = [], [], []   # keep (start, end) for every graph

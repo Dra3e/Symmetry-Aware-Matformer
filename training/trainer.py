@@ -3,13 +3,14 @@ import datetime
 from torch.utils.data import DataLoader
 from models.Transformer import Transformer  
 from training.loss_functions import LossContrastive, LossFactor, LossProperty, LossTotal
-from training.dataset import get_training_data_from_pkl
+from training.dataset import get_training_data_from_pkl, CrystalGraphDataset
 from training.evaluator import compute_loss
-from tqdm import tqdm 
+from tqdm import tqdm
+from torch.utils.data.dataloader import default_collate
 
-def custom_collate_fn(batch):
-    crystals, target_values = zip(*batch)
-    return list(crystals), torch.tensor(target_values, dtype=torch.float32)
+def graph_collate(batch):
+    graphs, targets = zip(*batch)          # lists of length B
+    return list(graphs), default_collate(targets)
 
 def run(property, training_path: str, validation_path: str, num_epochs = 100, batch_size = 25, learning_rate = 1e-4, threshold = 100.0):
     # Use GPU if available
@@ -24,24 +25,24 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
     factor_optimizer = torch.optim.Adam([factors], lr=1e-5) # Optimizer for the loss factors
 
     # Create dataset
-    dataset, target_properties = get_training_data_from_pkl(property, training_path) # Assuming get_training_data() returns a dataset and property value lit compatible with the model
-    assert all(c is not None for c in dataset), "❌ 'dataset' contains None values!"
-    assert all(tp is not None for tp in target_properties), "❌ 'dataset' contains None values!"
-    eval_dataset, eval_target_properties = get_training_data_from_pkl(property, validation_path)
-    assert all(c is not None for c in eval_dataset), "❌ 'eval_dataset' contains None values!"
-    data_loader = DataLoader(
-        list(zip(dataset, target_properties)),
-        batch_size=batch_size,
-        shuffle=True,
-        collate_fn=custom_collate_fn,
-        generator=torch.Generator(device=device))
-    eval_loader = DataLoader(
-        list(zip(eval_dataset, eval_target_properties)),
-        batch_size=batch_size,
-        shuffle=False,
-        collate_fn=custom_collate_fn,
-        generator=torch.Generator(device=device))
-
+    training_crystals, training_target_properties = get_training_data_from_pkl(property, training_path) # Assuming get_training_data() returns a dataset and property value lit compatible with the model
+    assert all(c is not None for c in training_crystals), "❌ 'training_crystals' contains None values!"
+    assert all(tp is not None for tp in training_target_properties), "❌ 'target_properties' contains None values!"
+    eval_crystals, eval_target_properties = get_training_data_from_pkl(property, validation_path)
+    assert all(c is not None for c in eval_crystals), "❌ 'eval_crystals' contains None values!"
+    assert all(tp is not None for tp in eval_target_properties), "❌ 'eval_target_properties' contains None values!"
+    training_graphs = CrystalGraphDataset(training_crystals, training_target_properties)
+    training_dataloader = DataLoader(training_graphs,
+                      batch_size=batch_size,
+                      shuffle=True,
+                      collate_fn=graph_collate,
+                      num_workers=4, pin_memory=True)
+    eval_graphs = CrystalGraphDataset(eval_crystals, eval_target_properties)
+    eval_dataloader = DataLoader(eval_graphs,
+                      batch_size=batch_size,
+                      shuffle=False,
+                      collate_fn=graph_collate,
+                      num_workers=4, pin_memory=True)
     best_eval_loss = float('inf')
     best_model_state = None
 
@@ -51,13 +52,9 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
             model.train() # Set model to training mode
             epoch_loss = 0.0 # Initialize epoch loss
 
-            for crystals, target_values in tqdm(data_loader, desc="Training on crystals", unit="crystal batches"):
-                # Move crystals and targets to device
-                crystals = [c.to(device) for c in crystals]  # Move each crystal to the device
-                target_values = target_values.to(device)
-
-                # Forward pass
-                results = [model(c) for c in crystals]
+            #for graphs, target_values in tqdm(training_dataloader, desc="Training on crystals", unit="crystal batches"):
+            for graphs, target_values in training_dataloader:                           # graphs = list[list[CrystalGraph]]
+                results = [model([g.to(device) for g in g_list]) for g_list in graphs]  # nested loop to go through the list[list[CrystalGraph]]
                 batch_property_losses = []
                 batch_contrastive_losses = []
 
@@ -112,8 +109,8 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
                 epoch_loss += model_loss.item()
         
             # Evaluate validation loss
-            eval_loss = compute_loss(model, eval_loader, factors, device, threshold)
-            print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {epoch_loss / len(dataset):.4f}, Eval Loss: {eval_loss:.4f}")
+            eval_loss = compute_loss(model, eval_dataloader, factors, device, threshold)
+            print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {epoch_loss / len(training_crystals):.4f}, Eval Loss: {eval_loss:.4f}")
 
             # Save the best model
             if eval_loss < best_eval_loss:

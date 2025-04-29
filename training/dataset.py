@@ -3,6 +3,43 @@ import torch
 from models.components.crystal import Crystal
 from pymatgen.core import Structure
 from pathlib import Path
+from torch.utils.data import Dataset
+from models.components.crystal_graph import CrystalGraph
+from models.scripts.invalid_augmentations import InvalidAugmenter
+
+class CrystalGraphDataset(Dataset):
+    """
+    Wraps (crystal, target) pairs and builds/keeps the graph list the first
+    time a sample is touched.  Afterwards we only return the cached result.
+    """
+    def __init__(self, crystals, targets, cutoff=3.0):
+        self.crystals = crystals
+        self.targets  = targets
+        self.cutoff   = cutoff
+        self.invalid_aug = InvalidAugmenter()
+
+        # slot for on-the-fly cache
+        self._graphs = [None] * len(crystals)
+
+    def _build_graph_list(self, C):
+        valid_syms, valid_trans = C.get_symmetry_operations()
+        aug_valid = C.apply_augmentations(valid_syms)
+        g_valid   = CrystalGraph.init_from_augmented_crystal(
+                        C, aug_valid, valid_trans, m_valid=1, config=self.cutoff)
+
+        inv_syms  = self.invalid_aug.forward(valid_syms)
+        aug_inv   = C.apply_augmentations(inv_syms)
+        g_inv     = CrystalGraph.create_batch(aug_inv, valid_trans, m_valid=0)
+
+        return g_inv + [g_valid]      # list of graphs (unchanging)
+
+    def __len__(self):
+        return len(self.crystals)
+
+    def __getitem__(self, idx):
+        if self._graphs[idx] is None:                 # build once
+            self._graphs[idx] = self._build_graph_list(self.crystals[idx])
+        return self._graphs[idx], self.targets[idx]
 
 def extract_crystals_from_pkl(pkl_path: str, nr_of_crystals):
     """
