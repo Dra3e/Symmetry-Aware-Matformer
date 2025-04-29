@@ -1,10 +1,10 @@
 import os
 import torch
 from torch.utils.data import DataLoader
-from training.trainer import run, custom_collate_fn
+from training.trainer import run, graph_collate
 from training.evaluator import compute_loss
 from models.Transformer import Transformer
-from training.dataset import get_training_data_from_pkl
+from training.dataset import get_training_data_from_pkl, CrystalGraphDataset
 
 DATA_PATH = "data"
 WEIGHTS_PATH = "training/results"
@@ -186,11 +186,15 @@ def setup_run(device, data_files, weight_files):
     threshold = checkpoint['threshold']
     print("Loading model...")
     dataset, target_properties = get_training_data_from_pkl(target_property, os.path.join(DATA_PATH, data_files[data_choice]))
-    
-    eval_loader = DataLoader(list(zip(dataset, target_properties)), batch_size=25, shuffle=False, collate_fn=custom_collate_fn)
+    graphs = CrystalGraphDataset(dataset, target_properties)
+    dataloader = DataLoader(graphs,
+                      batch_size=25,
+                      shuffle=False,
+                      collate_fn=graph_collate,
+                      num_workers=4, pin_memory=True)
 
     print("Computing loss...")
-    eval_loss = compute_loss(model, eval_loader, factors, device, threshold)
+    eval_loss = compute_loss(model, dataloader, factors, device, threshold)
     print(f"The MSA = {eval_loss}")
     input("Press Enter to continue > ")        
 
