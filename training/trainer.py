@@ -52,9 +52,8 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
             model.train() # Set model to training mode
             epoch_loss = 0.0 # Initialize epoch loss
 
-            #for graphs, target_values in tqdm(training_dataloader, desc="Training on crystals", unit="crystal batches"):
-            for graphs, target_values in training_dataloader:                           # graphs = list[list[CrystalGraph]]
-                results = [model([g.to(device) for g in g_list]) for g_list in graphs]  # nested loop to go through the list[list[CrystalGraph]]
+            for graphs, target_values in tqdm(training_dataloader, desc="Training on crystals", unit="crystal batches"): # graphs = list[list[CrystalGraph]]
+                results = [model([g.to(device) for g in g_list]) for g_list in graphs]                                   # nested loop to go through the list[list[CrystalGraph]]
                 batch_property_losses = []
                 batch_contrastive_losses = []
 
