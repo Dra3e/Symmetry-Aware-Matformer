@@ -77,5 +77,4 @@ class Transformer(nn.Module):
         self.graph_embedder = self.graph_embedder.to(device)
         self.transformer_layer = self.transformer_layer.to(device)
         self.readout = self.readout.to(device)
-        self.invalid_augmenter = self.invalid_augmenter.to(device)
         return self

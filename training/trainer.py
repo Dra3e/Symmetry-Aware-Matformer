@@ -57,11 +57,11 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
 
             for graphs, target_values in tqdm(training_dataloader, desc="Training on crystals", unit="batch"):
                 # Move crystals and targets to device
-                graphs = [g.to(device) for g_batch in graphs for g in g_batch]
+                graphs = [[g.to(device) for g in g_list] for g_list in graphs]
                 target_values = target_values.to(device)
                 with torch.cuda.amp.autocast(enabled=(device.type == 'cuda')):
                     # Forward pass
-                    results = [model([g_batch]) for g_batch in graphs]
+                    results = [model(g_list) for g_list in graphs]
                     batch_property_losses = []
                     batch_contrastive_losses = []
 
