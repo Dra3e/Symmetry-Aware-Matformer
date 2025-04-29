@@ -25,26 +25,6 @@ class Crystal:
         self.X = X.clone().detach() if isinstance(X, torch.Tensor) else torch.tensor(X, dtype=torch.float32)
         self.L = L.clone().detach() if isinstance(L, torch.Tensor) else torch.tensor(L, dtype=torch.float32)
 
-    def apply_augmentations(self, symmetry_operations):
-        """
-        Applies symmetry operations to a crystal structure.
-
-        Args:
-            symmetry_operations: List of 3x3 rotation matrices representing symmetry operations.
-
-        Returns:
-            augmented_crystals: List containing transformed Crystal instances, each with updated atomic positions.
-        """
-        augmented_crystals = []
-
-        for op in symmetry_operations:
-            augmented_crystal = Crystal(self.A, self.X, self.L) # New Crystal strucutre with the same atomic positions and lattice
-
-            augmented_crystal.X = (op @ self.X.T).T  # Apply the symmetry operation to the atomic position X: X' = op * X
-            augmented_crystals.append(augmented_crystal)
-
-        return augmented_crystals  
-
     def translate_crystal(self, coefficients): 
         """
         Move a crystal structure through 3D space by a translation vector that is a multiple of the lattice vectors.
@@ -112,10 +92,30 @@ class Crystal:
             R_tensor = torch.tensor(R, dtype=torch.float32)
             t_tensor = torch.tensor(t, dtype=torch.float32)
             if not torch.allclose(R_tensor, identity):  # Filter out identity rotation
-                rotation_matrices.append(R_tensor)
-                translation_vectors.append(t_tensor)
+                rotation_matrices.append(R_tensor.to(self.L.device))
+                translation_vectors.append(t_tensor.to(self.L.device))
 
         return rotation_matrices, translation_vectors
+    
+    def apply_augmentations(self, symmetry_operations):
+        """
+        Applies symmetry operations to a crystal structure.
+
+        Args:
+            symmetry_operations: List of 3x3 rotation matrices representing symmetry operations.
+
+        Returns:
+            augmented_crystals: List containing transformed Crystal instances, each with updated atomic positions.
+        """
+        augmented_crystals = []
+
+        for op in symmetry_operations:
+            augmented_crystal = Crystal(self.A, self.X, self.L) # New Crystal strucutre with the same atomic positions and lattice
+
+            augmented_crystal.X = (op @ self.X.T).T  # Apply the symmetry operation to the atomic position X: X' = op * X
+            augmented_crystals.append(augmented_crystal)
+
+        return augmented_crystals
     
     def to(self, device):
         """

@@ -103,3 +103,20 @@ class AttentionFunction(nn.Module):
         alpha = alpha * symmetry * m_valid                          # (H, N, 3D/H)
 
         return alpha, value_C  # both (H, N, 3D/H)
+    
+    def to(self, device):
+        """
+        Move the AttentionFunction instance to the specified device.
+
+        Args:
+            device (torch.device): The device to move the instance to.
+        """
+        self.query = self.query.to(device)
+        self.key_i = self.key_i.to(device)
+        self.key_j = self.key_j.to(device)
+        self.value_i = self.value_i.to(device)
+        self.value_j = self.value_j.to(device)
+        self.edge = self.edge.to(device)
+        self.layer_norm = self.layer_norm.to(device)
+        self.symmetry = self.symmetry.to(device)
+        return self

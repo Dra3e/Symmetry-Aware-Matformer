@@ -92,3 +92,16 @@ class TransformerLayer(nn.Module):
         m_i_chunk = self.out_projection(m_i_chunk)  # [M, D]
 
         return m_i_chunk
+    
+    def to(self, device):
+        """
+        Move the TransformerLayer instance to the specified device.
+        
+        Args:
+            device (torch.device): The device to move the instance to.
+        """
+        self.attention_function = self.attention_function.to(device)
+        self.linear_weight = nn.Parameter(self.linear_weight.to(device))
+        self.linear_bias = nn.Parameter(self.linear_bias.to(device))
+        self.out_projection = self.out_projection.to(device)
+        return self

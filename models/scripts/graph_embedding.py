@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
-from collections import namedtuple
 from mendeleev import element
-from tqdm import tqdm 
 
 class GraphEmbedder(nn.Module):
     """ Script class for embedding crystal graphs"""
@@ -61,6 +59,18 @@ class GraphEmbedder(nn.Module):
         ], dim=1)  # Shape: (number_of_edges, 6, hidden_dim)
 
         return atom_features, edge_features
+    
+    def to(self, device):
+        """
+        Move the GraphEmbedder instance to the specified device.
+
+        Args:
+            device (torch.device): The device to move the model to.
+        """
+        self.atom_embedding = self.atom_embedding.to(device)
+        self.edge_transform = self.edge_transform.to(device)
+        super().to(device)
+        return self
 
 class CGCNN(nn.Module):
     """ Transforms the atomic feature matrix A into learned node embeddings."""
@@ -98,10 +108,22 @@ class CGCNN(nn.Module):
 
         return self.embedding(A_featured)  # Linear transformation
     
+    def to(self, device):
+        """
+        Move the CGCNN instance to the specified device.
+
+        Args:
+            device (torch.device): The device to move the model to.
+        """
+        self.lookup = self.lookup.to(device)
+        self.embedding = self.embedding.to(device)
+        super().to(device)
+        return self
+    
 class AtomFeatureLookup(nn.Module):
     def __init__(self, atom_feature_dim=92):
         super().__init__()
-        self.atom_features = torch.zeros((92, atom_feature_dim))
+        self.register_buffer("atom_features", torch.zeros((atom_feature_dim, atom_feature_dim)))
 
         for atomic_num in range(1, 93):  # Atomic numbers 1 to 92
             elem = element(atomic_num)
@@ -130,6 +152,17 @@ class AtomFeatureLookup(nn.Module):
             torch.Tensor: Atom features (n_atoms, atom_feature_dim).
         """
         return self.atom_features[atomic_numbers - 1]  # Adjust for zero-indexing
+    
+    def to(self, device):
+        """
+        Move the AtomFeatureLookup instance to the specified device.
+
+        Args:
+            device (torch.device): The device to move the model to.
+        """
+        self.atom_features = self.atom_features.to(device)
+        super().to(device)
+        return self
 
 class EdgeTransformation(nn.Module):
     """
@@ -174,6 +207,19 @@ class EdgeTransformation(nn.Module):
         transformed_distances = self.activation(self.linear(expanded_distances)) # Linear transformation + Softplus 
 
         return transformed_distances
+    
+    def to(self, device):
+        """
+        Move the EdgeTransformation instance to the specified device.
+
+        Args:
+            device (torch.device): The device to move the model to.
+        """
+        self.linear = self.linear.to(device)
+        self.rbf_expansion = self.rbf_expansion.to(device)
+        self.activation = self.activation.to(device)
+        super().to(device)
+        return self
 
 
 class RBF(nn.Module):
@@ -218,3 +264,15 @@ class RBF(nn.Module):
         output = torch.exp(-self.gamma * (D_expanded - self.centers) ** 2)  # Compute RBF transformation
 
         return output.squeeze(1)
+    
+    def to(self, device):
+        """
+        Move the RBF instance to the specified device.
+
+        Args:
+            device (torch.device): The device to move the model to.
+        """
+        self.centers = self.centers.to(device)
+        self.gamma = self.gamma.to(device)
+        super().to(device)
+        return self

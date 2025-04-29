@@ -1,3 +1,4 @@
+import os
 import torch
 import datetime
 from torch.utils.data import DataLoader
@@ -15,6 +16,8 @@ def graph_collate(batch):
 def run(property, training_path: str, validation_path: str, num_epochs = 100, batch_size = 25, learning_rate = 1e-4, threshold = 100.0):
     # Use GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
+    num_workers = max(2, os.cpu_count() // 2) if torch.cuda.is_available() else 0
 
     # Initialize learnable loss factors
     factors = torch.nn.Parameter(torch.ones(2, requires_grad=True, device=device))  # 2 loss functions
@@ -36,13 +39,13 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
                       batch_size=batch_size,
                       shuffle=True,
                       collate_fn=graph_collate,
-                      num_workers=4, pin_memory=True)
+                      num_workers=num_workers, pin_memory=torch.cuda.is_available())
     eval_graphs = CrystalGraphDataset(eval_crystals, eval_target_properties)
     eval_dataloader = DataLoader(eval_graphs,
                       batch_size=batch_size,
                       shuffle=False,
                       collate_fn=graph_collate,
-                      num_workers=4, pin_memory=True)
+                      num_workers=num_workers, pin_memory=torch.cuda.is_available())
     best_eval_loss = float('inf')
     best_model_state = None
 
@@ -52,57 +55,68 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
             model.train() # Set model to training mode
             epoch_loss = 0.0 # Initialize epoch loss
 
-            for graphs, target_values in tqdm(training_dataloader, desc="Training on crystals", unit="crystal batches"): # graphs = list[list[CrystalGraph]]
-                results = [model([g.to(device) for g in g_list]) for g_list in graphs]                                   # nested loop to go through the list[list[CrystalGraph]]
-                batch_property_losses = []
-                batch_contrastive_losses = []
+            for graphs, target_values in tqdm(training_dataloader, desc="Training on crystals", unit="batch"):
+                # Move crystals and targets to device
+                graphs = [g.to(device) for g_batch in graphs for g in g_batch]
+                target_values = target_values.to(device)
+                with torch.cuda.amp.autocast(enabled=(device.type == 'cuda')):
+                    # Forward pass
+                    results = [model([g_batch]) for g_batch in graphs]
+                    batch_property_losses = []
+                    batch_contrastive_losses = []
 
-                for i, (predictions, latents, graphs) in enumerate(results):
-                    # Get the target value for this crystal
-                    target = target_values[i]  # scalar
+                    for i, (predictions, latents, graphs) in enumerate(results):
+                        # Get the target value for this crystal
+                        target = target_values[i]  # scalar
 
-                    crystal_property_losses = []
-                    crystal_contrastive_losses = []
+                        crystal_property_losses = []
+                        crystal_contrastive_losses = []
 
-                    # Use first graph as reference
-                    latent_ref = latents[0]
-                    for j in range(1, len(graphs)):  # skip index 0 (reference)
-                        latent_j = latents[j]
-                        pred_j = predictions[j]
-                        target = target.expand_as(pred_j)
+                        # Use first graph as reference
+                        latent_ref = latents[0]
+                        for j in range(1, len(graphs)):  # skip index 0 (reference)
+                            latent_j = latents[j]
+                            pred_j = predictions[j]
+                            target = target.expand_as(pred_j)
 
-                        m_valid = torch.tensor(graphs[j].m_valid, dtype=torch.float32, device=device)
+                            m_valid = torch.tensor(graphs[j].m_valid, dtype=torch.float32, device=device)
 
-                        loss_property = LossProperty(target, pred_j)
-                        loss_contrastive = LossContrastive(latent_ref, latent_j, m_valid, threshold)
+                            loss_property = LossProperty(target, pred_j)
+                            loss_contrastive = LossContrastive(latent_ref, latent_j, m_valid, threshold)
 
-                        crystal_property_losses.append(loss_property)
-                        crystal_contrastive_losses.append(loss_contrastive)
+                            crystal_property_losses.append(loss_property)
+                            crystal_contrastive_losses.append(loss_contrastive)
 
-                    # Average per-crystal loss (mean over graphs)
-                    mean_loss_property = torch.stack(crystal_property_losses).mean()
-                    mean_loss_contrastive = torch.stack(crystal_contrastive_losses).mean()
+                        # Average per-crystal loss (mean over graphs)
+                        mean_loss_property = torch.stack(crystal_property_losses).mean()
+                        mean_loss_contrastive = torch.stack(crystal_contrastive_losses).mean()
 
-                    batch_property_losses.append(mean_loss_property)
-                    batch_contrastive_losses.append(mean_loss_contrastive)
+                        batch_property_losses.append(mean_loss_property)
+                        batch_contrastive_losses.append(mean_loss_contrastive)
 
-                # Average over the batch (mean over crystals)
-                loss_property_batch = torch.stack(batch_property_losses).mean()
-                loss_contrastive_batch = torch.stack(batch_contrastive_losses).mean()
+                    # Average over the batch (mean over crystals)
+                    loss_property_batch = torch.stack(batch_property_losses).mean()
+                    loss_contrastive_batch = torch.stack(batch_contrastive_losses).mean()
 
-                # Combine losses
-                both_losses = torch.tensor([loss_property_batch, loss_contrastive_batch], device=device)
-                model_loss = LossTotal(both_losses, factors)
+                    # Combine losses
+                    both_losses = torch.stack([loss_property_batch, loss_contrastive_batch])
+                    model_loss = LossTotal(both_losses, factors)
 
                 # Backprop and optimize
                 model_optimizer.zero_grad()
-                model_loss.backward()
-                model_optimizer.step()
+                if model_loss.requires_grad and model_loss.grad_fn is not None:
+                    scaler.scale(model_loss).backward()
+                    scaler.step(model_optimizer)
+                    scaler.update()
+                else:
+                    print("⚠️ Skipping batch: No gradient flow detected.")
 
                 # Update factors
                 factor_optimizer.zero_grad()
-                LossFactor(loss_property_batch.detach(), factors[0]).backward(retain_graph=True)
-                LossFactor(loss_contrastive_batch.detach(), factors[1]).backward()
+                loss_factor_property = LossFactor(loss_property_batch.detach(), factors[0])
+                loss_factor_contrastive = LossFactor(loss_contrastive_batch.detach(), factors[1])
+                loss_factor_property.backward(retain_graph=True)
+                loss_factor_contrastive.backward()
                 factor_optimizer.step()
 
                 epoch_loss += model_loss.item()

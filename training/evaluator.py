@@ -46,7 +46,7 @@ def compute_loss(model, eval_loader, factors, device, threshold):
             loss_contrastive_batch = torch.stack(batch_contrastive_losses).mean()
 
             # Combine losses
-            both_losses = torch.tensor([loss_property_batch, loss_contrastive_batch], device=device)
+            both_losses = torch.stack([loss_property_batch, loss_contrastive_batch])
             total = LossTotal(both_losses, factors)
 
             total_loss += total.item()
