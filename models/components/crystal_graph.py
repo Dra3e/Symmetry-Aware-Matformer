@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from models.scripts.graph_embedding import CGCNN, EdgeTransformation
+
 from models.scripts.crystal_graph_vectorize import _pair_edges
 
 class CrystalGraph(nn.Module):
@@ -56,7 +56,7 @@ class CrystalGraph(nn.Module):
         base_edges = _pair_edges(crystal.X, config, m_valid, m_sym=0)
 
         if translation_vectors.numel() == 0:           # no periodic edges needed
-            return cls(nodes=nodes, edges=base_edges, config=config)
+            return cls(nodes=nodes, edges=base_edges, m_valid=m_valid, config=config)
 
         # ---------- periodic edges (broadcast) ----------
         # crystal.X : (N,3)          translation_vectors : (T,3)
@@ -72,7 +72,7 @@ class CrystalGraph(nn.Module):
         periodic_edges = torch.cat(periodic_edges, dim=0)
 
         edges = torch.cat((base_edges, periodic_edges), dim=0)
-        return cls(nodes=nodes, edges=edges, config=config)
+        return cls(nodes=nodes, edges=edges, m_valid=m_valid, config=config)
     
     @classmethod
     def init_from_augmented_crystal(cls, original_crystal, augmented_crystals, translation_vectors, m_valid=1, config=3.0):
@@ -111,7 +111,7 @@ class CrystalGraph(nn.Module):
             )
             edges = torch.cat((edges, loop_edges), dim=0)
 
-        return cls(nodes=nodes, edges=edges, config=config)
+        return cls(nodes=nodes, edges=edges, config=config, m_valid=m_valid)
 
     @staticmethod
     def create_batch(crystals, translation_vectors, m_valid=1):
