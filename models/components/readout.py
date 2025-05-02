@@ -1,4 +1,5 @@
 import torch.nn as nn
+
 from models.scripts.update import Update
 from models.scripts.global_pooling import GlobalPooling
 from models.scripts.predicted_property import PredictedProperty

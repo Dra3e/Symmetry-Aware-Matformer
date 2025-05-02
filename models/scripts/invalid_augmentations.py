@@ -1,6 +1,5 @@
-import numpy as np
-import spglib
 import torch
+import spglib
 import tqdm
 
 class InvalidAugmenter:

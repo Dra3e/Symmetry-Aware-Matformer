@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
+
 from mendeleev import element
+
+# ===== Graph Embedder ======
 
 class GraphEmbedder(nn.Module):
     """ Script class for embedding crystal graphs"""
@@ -71,6 +74,8 @@ class GraphEmbedder(nn.Module):
         self.edge_transform = self.edge_transform.to(device)
         super().to(device)
         return self
+    
+# ===== CGCNN =====
 
 class CGCNN(nn.Module):
     """ Transforms the atomic feature matrix A into learned node embeddings."""
@@ -119,7 +124,9 @@ class CGCNN(nn.Module):
         self.embedding = self.embedding.to(device)
         super().to(device)
         return self
-    
+
+# ===== Atom Feature Lookup =====
+
 class AtomFeatureLookup(nn.Module):
     def __init__(self, atom_feature_dim=92):
         super().__init__()
@@ -163,6 +170,8 @@ class AtomFeatureLookup(nn.Module):
         self.atom_features = self.atom_features.to(device)
         super().to(device)
         return self
+
+# ===== Edge Transformation =====
 
 class EdgeTransformation(nn.Module):
     """
@@ -221,6 +230,7 @@ class EdgeTransformation(nn.Module):
         super().to(device)
         return self
 
+# ===== RBF =====
 
 class RBF(nn.Module):
     """

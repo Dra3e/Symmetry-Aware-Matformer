@@ -1,8 +1,9 @@
-import pickle
 import torch
+import pickle
+
+from pathlib import Path
 from models.components.crystal import Crystal
 from pymatgen.core import Structure
-from pathlib import Path
 from torch.utils.data import Dataset
 from models.components.crystal_graph import CrystalGraph
 from models.scripts.invalid_augmentations import InvalidAugmenter

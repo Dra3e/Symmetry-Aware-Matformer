@@ -1,4 +1,5 @@
 import torch
+
 from models.Transformer import Transformer  
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

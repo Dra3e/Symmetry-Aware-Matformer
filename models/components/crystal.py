@@ -61,10 +61,6 @@ class Crystal:
             rotation_matrices: List of 3x3 rotation matrices (torch.Tensor) representing symmetry operations.
             translation_vectors: List of 3D translation vectors (torch.Tensor) corresponding to each rotation.
         """
-        import numpy as np
-        import torch
-        import spglib
-
         # Convert torch tensors to numpy
         lattice = self.L.cpu().numpy()
         positions = self.X.cpu().numpy() @ np.linalg.inv(lattice)  # fractional coords

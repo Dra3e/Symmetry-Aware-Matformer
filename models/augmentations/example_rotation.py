@@ -1,4 +1,5 @@
 import torch
+
 from models.augmentations.rotation import Axis
 
 # To run write "python -m models.augmentations.example_rotation"

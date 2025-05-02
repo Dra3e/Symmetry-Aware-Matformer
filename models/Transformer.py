@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+
 from models.components.readout import Readout
 from models.components.transformer_layer import TransformerLayer
 from models.scripts.graph_embedding import GraphEmbedder

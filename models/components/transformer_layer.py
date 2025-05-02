@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+
 from models.scripts.attention_function import AttentionFunction
 
 class TransformerLayer(nn.Module):

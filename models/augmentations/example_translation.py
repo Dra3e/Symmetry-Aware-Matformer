@@ -1,4 +1,5 @@
 import torch
+
 from models.components.crystal import Crystal
 
 # To run write "python -m models.augmentations.example_translation"
