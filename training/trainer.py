@@ -82,7 +82,7 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
                             crystal_contrastive_losses.append(loss_contrastive)
 
                         # Average per-crystal loss (mean over graphs)
-                        loss_property = MultiTaskLoss.LossProperty(target.expand_as(predictions[0]), predictions[0])
+                        loss_property = MultiTaskLoss.LossProperty(target.expand_as(predictions[-1]), predictions[-1])
                         mean_loss_contrastive = torch.stack(crystal_contrastive_losses).sum()
 
                         batch_property_losses.append(loss_property)
