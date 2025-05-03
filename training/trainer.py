@@ -14,7 +14,7 @@ def graph_collate(batch):
     graphs, targets = zip(*batch)          # lists of length B
     return list(graphs), default_collate(targets)
 
-def run(property, training_path: str, validation_path: str, num_epochs = 100, batch_size = 25, learning_rate = 1e-4, threshold = 100.0):
+def run(property, training_path: str, validation_path: str, num_epochs = 50, batch_size = 32, learning_rate = 1e-2, threshold = 5.0):
     # Use GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
@@ -73,8 +73,7 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
                         # Use last graph as reference
                         latent_ref = latents[-1]
                         assert graph_list[-1].m_valid == 1, "Reference graph must be valid!"
-                        for j in range(len(graph_list) - 1):
-                            assert graph_list[j].m_valid == 0, f"Graph {j} should be invalid!"
+                        for j in range(len(graph_list)):
                             latent_j = latents[j]
                             m_valid = torch.tensor(graph_list[j].m_valid, dtype=torch.float32, device=device)
                             
@@ -83,7 +82,7 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
 
                         # Average per-crystal loss (mean over graphs)
                         loss_property = MultiTaskLoss.LossProperty(target.expand_as(predictions[-1]), predictions[-1])
-                        mean_loss_contrastive = torch.stack(crystal_contrastive_losses).sum()
+                        mean_loss_contrastive = torch.stack(crystal_contrastive_losses).mean() # Multi-task loss function require all loss functions to be treaded equally. If one is .mean() all is .mean()
 
                         batch_property_losses.append(loss_property)
                         batch_contrastive_losses.append(mean_loss_contrastive)

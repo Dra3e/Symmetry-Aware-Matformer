@@ -23,30 +23,27 @@ def compute_loss(model, eval_loader, multi_loss, device, threshold):
                     # Get the target value for this crystal
                     target = target_values[i]  # scalar
 
-                    crystal_property_losses = []
                     crystal_contrastive_losses = []
 
                     # Use last graph as reference
                     latent_ref = latents[-1]
                     assert graphs[-1].m_valid == 1, "Reference graph must be valid!"
-                    for j in range(len(graphs) - 1):  # skip reference graph
+                    for j in range(len(graphs)):
                         latent_j = latents[j]
                         pred_j = predictions[j]
                         target = target.expand_as(pred_j)
 
                         m_valid = torch.tensor(graphs[j].m_valid, dtype=torch.float32, device=device)
 
-                        loss_property = MultiTaskLoss.LossProperty(target, pred_j)
                         loss_contrastive = MultiTaskLoss.LossContrastive(latent_ref, latent_j, m_valid, threshold)
 
-                        crystal_property_losses.append(loss_property)
                         crystal_contrastive_losses.append(loss_contrastive)
 
                     # Average per-crystal loss (mean over graphs)
-                    mean_loss_property = torch.stack(crystal_property_losses).mean()
+                    loss_property = MultiTaskLoss.LossProperty(target.expand_as(predictions[-1]), predictions[-1])
                     mean_loss_contrastive = torch.stack(crystal_contrastive_losses).mean()
 
-                    batch_property_losses.append(mean_loss_property)
+                    batch_property_losses.append(loss_property)
                     batch_contrastive_losses.append(mean_loss_contrastive)
 
                 # Average over the batch (mean over crystals)

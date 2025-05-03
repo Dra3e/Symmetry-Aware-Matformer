@@ -108,7 +108,7 @@ def setup_training(data_files):
     DEFAULT_NUM_EPOCHS = 50
     DEFAULT_BATCH_SIZE = 32
     DEFAULT_LEARNING_RATE = 1e-2
-    DEFAULT_THRESHOLD = 100.0
+    DEFAULT_THRESHOLD = 5.0
 
     num_epochs = DEFAULT_NUM_EPOCHS
     batch_size = DEFAULT_BATCH_SIZE
