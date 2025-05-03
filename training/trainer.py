@@ -20,9 +20,6 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
     num_workers = max(2, os.cpu_count() // 2) if torch.cuda.is_available() else 0
 
-    # Initialize learnable loss factors
-    factors = torch.nn.Parameter(torch.ones(2, requires_grad=True, device=device))  # 2 loss functions
-
     # Initialize model, optimizer, and loss funciton
     model = Transformer().to(device) # Assuming Transformer is defined in models.Transformer
     multi_loss = MultiTaskLoss(n_tasks=2).to(device)
@@ -132,7 +129,7 @@ def run(property, training_path: str, validation_path: str, num_epochs = 100, ba
             'threshold': threshold,
             'property': property,
             'model_state_dict': best_model_state,
-            'factors': factors.detach().cpu()
+            "multi_loss_state_dict": multi_loss.state_dict()
         }, name)
         print(f"Best model saved with Val Loss: {best_eval_loss:.4f}")
 
