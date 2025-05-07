@@ -1,21 +1,45 @@
 import torch
 import spglib
 import tqdm
+import os
+import sys
+import contextlib
+
+# Context manager to suppress stderr (used to silence spglib internal warnings)
+@contextlib.contextmanager
+def suppress_stderr():
+    """
+    Suppress stderr output.
+    """
+    # Open the null device — 'nul' for Windows, '/dev/null' for Unix; os.devnull handles it cross-platform
+    with open(os.devnull, 'w') as devnull:
+        old_stderr = sys.stderr # Save the current stderr stream
+        try:
+            sys.stderr = devnull # Redirect stderr to null (suppress output)
+            yield
+        finally:
+            sys.stderr = old_stderr # Restore original stderr stream
 
 class InvalidAugmenter:
     '''Script class for getting all unique symmetry operations for the crystals and a method that returns all symmetry operations that are not valid'''
     def __init__(self):
+        """
+        Initializes the InvalidAugmenter class by loading all unique symmetry operations 
+        from the spglib database and storing them as PyTorch tensors."""
         all_rotations = set()
         for i in tqdm.tqdm(range(1, 231), desc="Processing Symmetry Datasets", unit="hall marks"): # Loops through all of the hall numbers, and creates a loading bar in the terminal
-            dataset = spglib.get_symmetry_from_database(hall_number=i) # Get symmetry operations from the database
+            with suppress_stderr(): # Suppress spglib warnings for unsupported or broken hall numbers
+                dataset = spglib.get_symmetry_from_database(hall_number=i) # Get symmetry operations from the database
 
             if dataset is None:
                 continue
             for R in dataset['rotations']:
                 all_rotations.add(tuple(R.flatten())) # Stores all unique rotations in a set to avoid duplicates
 
+        # Convert the set of unique rotations to PyTorch tensors
         all_valid = [torch.tensor(r, dtype=torch.float32).reshape(3, 3) for r in all_rotations] # Converts all unique rotations to PyTorch tensors
         self.all_valid_tensor = torch.stack(all_valid)
+    
     
     def forward(self, crystals_valid_augmentation_matrices):
         '''
@@ -44,10 +68,8 @@ class InvalidAugmenter:
         # Compare all rotations with all valid matrices
         # Element-wise comparison with tolerance
         close = torch.isclose(all_rots, valid_mats, atol=1e-5) # [N, M, 3, 3] — True if elements are within atol
-
         # Check if all elements in the 3x3 matrix are close
         matrix_close = torch.all(close, dim=(-2, -1))  # [N, M]
-        
         # Check if any of the valid matrices matches each rotation
         is_valid = torch.any(matrix_close, dim=1)  # [N]
         

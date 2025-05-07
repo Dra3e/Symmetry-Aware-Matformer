@@ -105,8 +105,8 @@ class CrystalGraph(nn.Module):
 
             loop_edges = torch.stack(
                 (atom_idx, atom_idx, disp_flat,
-                torch.ones_like(atom_idx),          # edge_type = 1  (augmented)
-                torch.full_like(atom_idx, m_valid),
+                torch.ones_like(atom_idx),          # Creates a matrix with the same shape as atom_idx filled with 1s. edge_type = 1  (augmented)
+                torch.full_like(atom_idx, m_valid), # Creates a matrix with the same shape as atom_idx filled with m_valid.
                 atom_idx), dim=1
             )
             edges = torch.cat((edges, loop_edges), dim=0)
