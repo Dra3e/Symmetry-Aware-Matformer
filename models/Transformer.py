@@ -7,7 +7,7 @@ from models.scripts.graph_embedding import GraphEmbedder
 
 class Transformer(nn.Module):
     """ The transformer model for predicting crystal properties. """
-    def __init__(self, atom_feature_dim=92, hidden_dim=120, num_rbf_kernels=50, num_heads=4, gradient=10): 
+    def __init__(self, atom_feature_dim=92, hidden_dim=120, num_rbf_kernels=50, min_rbf_dist=0.0, max_rbf_dist=8.0, num_heads=4, gradient=20): 
         super(Transformer, self).__init__()
         """
         Initialize the transformer model.
@@ -20,9 +20,9 @@ class Transformer(nn.Module):
             gradient (float): A value between 1 and 0, how to much attention should be payed to invalid edges.
                 If 0 then they weigh the same, if 1 and invalid edges are ignored.
         """
-        self.graph_embedder = GraphEmbedder(atom_feature_dim, hidden_dim, num_rbf_kernels) # Graph embedding layer for atom and edge features
-        self.transformer_layer = TransformerLayer(hidden_dim, num_heads, gradient) # Transformer layer for processing node features
-        self.readout = Readout(hidden_dim, 1) # Assuming a regression task for property prediction
+        self.graph_embedder = GraphEmbedder(atom_feature_dim=atom_feature_dim, hidden_dim=hidden_dim, num_rbf_kernels=num_rbf_kernels, min_rbf_dist=min_rbf_dist, max_rbf_dist=max_rbf_dist) # Graph embedding layer for atom and edge features
+        self.transformer_layer = TransformerLayer(hidden_dim=hidden_dim, head_size=num_heads, gradient=gradient) # Transformer layer for processing node features
+        self.readout = Readout(hidden_dim=hidden_dim, output_dim=1) # Assuming a regression task for property prediction
 
     def forward(self, graphs, chunk_size: int = 32):
         """
@@ -62,7 +62,7 @@ class Transformer(nn.Module):
             edge_chunk = edge_all[mask].clone()
             edge_chunk[:, 5, 0] -= start                     # localise indices
             m_all[start:end] = self.transformer_layer(node_chunk, edge_chunk)
-
+        
         # ---- step 4: per-graph read-out ----
         predicted_properties, predicted_latents = [], []
         for (beg, end), _g in zip(node_ranges, graphs):
@@ -71,7 +71,7 @@ class Transformer(nn.Module):
             y, F  = self.readout(m_i, atoms)
             predicted_properties.append(y)
             predicted_latents.append(F)
-
+        
         return torch.stack(predicted_properties), torch.stack(predicted_latents), graphs
     
     def to(self, device):

@@ -43,6 +43,5 @@ class Readout(nn.Module):
             device (torch.device): The device to move the instance to.
         """
         self.update = self.update.to(device)
-        self.global_pooling = self.global_pooling.to(device)
         self.predicted_property = self.predicted_property.to(device)
         return self
