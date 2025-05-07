@@ -1,11 +1,9 @@
 import os
 import torch
-
 from torch.utils.data import DataLoader
-from training.trainer import run, graph_collate
-from training.evaluator import compute_loss
+from models.components.ACG import ACG
+from training.engine import SAM_TrainingEngine
 from models.Transformer import Transformer
-from training.dataset import get_training_data_from_pkl, CrystalGraphDataset
 
 DATA_PATH = "data"
 WEIGHTS_PATH = "training/results"
@@ -85,12 +83,13 @@ def setup_training(data_files):
             break
     
     property_mapping = {
-        "formation energy": "e_hull",
+        "hull energy": "e_hull",
         "band gap": "gap pbe",
         "magnetic moment": "mu_b",
         "elastic anisotropy": "elastic anisotropy",
         "bulk modulus": "bulk modulus",
-        "shear modulus": "shear modulus"
+        "shear modulus": "shear modulus",
+        "formation energy": "e_form"
     }
     property_names = list(property_mapping.keys())
     property_list = list_files(property_names)
@@ -108,7 +107,7 @@ def setup_training(data_files):
     DEFAULT_NUM_EPOCHS = 50
     DEFAULT_BATCH_SIZE = 32
     DEFAULT_LEARNING_RATE = 1e-2
-    DEFAULT_THRESHOLD = 5.0
+    DEFAULT_THRESHOLD = 20.0
 
     num_epochs = DEFAULT_NUM_EPOCHS
     batch_size = DEFAULT_BATCH_SIZE
@@ -134,66 +133,79 @@ def setup_training(data_files):
             print("Invalid input. Using default settings.")
 
     print("Training...")
-    run(
+    # run(
+    #     property_mapping[property_names[chosen_property]],
+    #     training_path=os.path.join(DATA_PATH, data_files[test_choice]),
+    #     validation_path=os.path.join(DATA_PATH, data_files[validation_choice]),
+    #     num_epochs=num_epochs,
+    #     batch_size=batch_size,
+    #     learning_rate=learning_rate,
+    #     threshold=threshold)
+    acg = ACG()
+    SAM_TrainingEngine(
+        learning_rate=learning_rate,
+    ).fit(
         property_mapping[property_names[chosen_property]],
         training_path=os.path.join(DATA_PATH, data_files[test_choice]),
         validation_path=os.path.join(DATA_PATH, data_files[validation_choice]),
+        graph_builder=acg.build_graphs,
+        loss_type="multi",
         num_epochs=num_epochs,
         batch_size=batch_size,
-        learning_rate=learning_rate,
-        threshold=threshold)
+        threshold=threshold
+    )
 
 
-def setup_run(device, data_files, weight_files):
-    """Sets up and runs an existing model.
-    Args:
-        device (torch.device): The device to load the model on (CPU or GPU).
-        data_files (list): List of available datasets.
-        weight_files (list): List of available model weight files."""
-    weight_file_list = list_files(weight_files)
-    data_file_list = list_files(data_files)
+# def setup_run(device, data_files, weight_files):
+#     """Sets up and runs an existing model.
+#     Args:
+#         device (torch.device): The device to load the model on (CPU or GPU).
+#         data_files (list): List of available datasets.
+#         weight_files (list): List of available model weight files."""
+#     weight_file_list = list_files(weight_files)
+#     data_file_list = list_files(data_files)
 
-    while True:
-        print("Please choose the constructed model to use:")
-        print(weight_file_list)
-        model_choice = int(input("> "))
-        if 0 <= model_choice < len(weight_files):
-            break
-        else:
-            print("Invalid choice. Please select a valid index.")
+#     while True:
+#         print("Please choose the constructed model to use:")
+#         print(weight_file_list)
+#         model_choice = int(input("> "))
+#         if 0 <= model_choice < len(weight_files):
+#             break
+#         else:
+#             print("Invalid choice. Please select a valid index.")
 
-    while True:
-        print("Please choose the validation dataset:")
-        print(data_file_list)
-        data_choice = int(input("> "))
-        if 0 <= data_choice < len(data_files):
-            break
-        else:
-            print("Invalid choice. Please select a valid index.")
+#     while True:
+#         print("Please choose the validation dataset:")
+#         print(data_file_list)
+#         data_choice = int(input("> "))
+#         if 0 <= data_choice < len(data_files):
+#             break
+#         else:
+#             print("Invalid choice. Please select a valid index.")
     
-    checkpoint = torch.load(os.path.join(WEIGHTS_PATH, weight_files[model_choice]), map_location=device)
-    model = Transformer().to(device)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model
+#     checkpoint = torch.load(os.path.join(WEIGHTS_PATH, weight_files[model_choice]), map_location=device)
+#     model = Transformer().to(device)
+#     model.load_state_dict(checkpoint['model_state_dict'])
+#     model
 
-    # Re-wrap the saved tensor as a Parameter
-    factors = checkpoint['factors'].to(device)
+#     # Re-wrap the saved tensor as a Parameter
+#     factors = checkpoint['factors'].to(device)
     
-    target_property = checkpoint['property']
-    threshold = checkpoint['threshold']
-    print("Loading model...")
-    dataset, target_properties = get_training_data_from_pkl(target_property, os.path.join(DATA_PATH, data_files[data_choice]))
-    graphs = CrystalGraphDataset(dataset, target_properties)
-    dataloader = DataLoader(graphs,
-                      batch_size=25,
-                      shuffle=False,
-                      collate_fn=graph_collate,
-                      num_workers=4, pin_memory=True)
+#     target_property = checkpoint['property']
+#     threshold = checkpoint['threshold']
+#     print("Loading model...")
+#     dataset, target_properties = get_training_data_from_pkl(target_property, os.path.join(DATA_PATH, data_files[data_choice]))
+#     graphs = CrystalGraphDataset(dataset, target_properties)
+#     dataloader = DataLoader(graphs,
+#                       batch_size=25,
+#                       shuffle=False,
+#                       collate_fn=graph_collate,
+#                       num_workers=4, pin_memory=True)
 
-    print("Computing loss...")
-    eval_loss = compute_loss(model, dataloader, factors, device, threshold)
-    print(f"The MSA = {eval_loss}")
-    input("Press Enter to continue > ")        
+#     print("Computing loss...")
+#     eval_loss = compute_loss(model, dataloader, factors, device, threshold)
+#     print(f"The MSA = {eval_loss}")
+#     input("Press Enter to continue > ")        
 
 def list_files(files):
     file_list = []

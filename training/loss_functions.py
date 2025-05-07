@@ -58,32 +58,22 @@ class MultiTaskLoss(torch.nn.Module):
         loss = positive_loss + negative_loss
 
         return loss.mean()
-        
-        # if actual_F.shape == predicted_F.shape:
-        #     print("Flag:", flag)
-        #     distances = torch.norm(actual_F - predicted_F, dim=0)
-            
-        #     assert not torch.isnan(distances).any(), "NaN detected in distances!"
-        #     assert not torch.isinf(distances).any(), "Inf detected in distances!"
-            
-        #     return (flag * (distances ** 2)) + ((1 - flag) * torch.clamp(threshold - distances, min=0.0) ** 2)
-        # else:
-        #     raise ValueError("Inputs are not the same size!")
+    
+    @staticmethod
+    def LossContrastive_Vectorized(latent_ref, latents, flags, threshold):
+        """
+        Vectorised contrastive loss.
+        latent_ref : (F,) or (1,F)
+        latents    : (N,F)
+        flags      : (N,)  – 1 ⇢ positive pair, 0 ⇢ negative pair
+        """
+        # (N,F) – broadcast subtract
+        diff = latents - latent_ref.unsqueeze(0)        # add batch‑dim to ref
+        # (N,)  – Euclidean distance for every j
+        distances = torch.norm(diff, dim=1)
 
-# def LossFactor(loss, factor):
-#     """Factorized Multi-Task Loss"""
-#     if factor != 0:
-#         return (loss / ((factor + 1e-6) ** 3)) + (1 / factor)
-#     else:
-#         raise ValueError("Cannot divide by zero!")
+        # Contrastive loss per pair
+        pos = flags * distances.pow(2)
+        neg = (1 - flags) * torch.clamp(threshold - distances, min=0.0).pow(2)
 
-# def LossTotal(losses, factors):
-#     """Multi-Task Loss"""
-#     if losses.shape == factors.shape:
-#         factors = torch.clamp(factors, min=1e-3, max=1e3)
-#         losses = torch.clamp(losses, min=1e-4, max=1e2)
-#         prod_factors = torch.clamp(torch.prod(factors), min=1e-3)
-#         total_loss = torch.sum(losses / (2 * (factors ** 2))) + torch.log10(prod_factors)
-#         return total_loss
-#     else:
-#         raise ValueError("Inputs are not the same size!")
+        return (pos + neg).mean()                       # scalar
