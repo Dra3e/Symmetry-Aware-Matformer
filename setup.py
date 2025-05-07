@@ -5,16 +5,17 @@ from models.components.ACG import ACG
 from training.engine import SAM_TrainingEngine
 from models.Transformer import Transformer
 
+# paths to data and weights directories
 DATA_PATH = "data"
 WEIGHTS_PATH = "training/results"
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1" # For debugging CUDA errors
 
 def main():
     """Main entry point for the program."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
     base_path = os.path.dirname(os.path.abspath(__file__))  # Path to the base directory
 
+    # Check if the data and results folders exist, if not create them
     data_folder = os.path.join(base_path, "data")
     results_folder = os.path.join(base_path, "training", "results")
 
@@ -36,10 +37,9 @@ def main():
         print("No files found in the data directory. Please add some data files.")
         return
 
-    run_program = True
-    while(run_program):
+    while True:
         print(
-            "Hello World!\n"
+            "\nHello World!\n"
             "Welcome to SAM (Symmetry Aware Matformer)\n"
             "A transformer model for predicting the properties of crystals\n"
         )
@@ -56,7 +56,7 @@ def main():
 
         if choice == 0:
             print("Terminating program. Goodbye!")
-            run_program = False
+            break
         elif choice == 1:
             setup_training(data_files=data_files)
             weight_files = get_files_from_directory(WEIGHTS_PATH)
@@ -91,7 +91,7 @@ def setup_training(data_files):
         "shear modulus": "shear modulus",
         "formation energy": "e_form"
     }
-    property_names = list(property_mapping.keys())
+    property_names = list(property_mapping.keys()) 
     property_list = list_files(property_names)
     while True:
         print("Please choose a property to predict:")
@@ -104,7 +104,7 @@ def setup_training(data_files):
 
 
     # Default training parameters
-    DEFAULT_NUM_EPOCHS = 50
+    DEFAULT_NUM_EPOCHS = 1 
     DEFAULT_BATCH_SIZE = 32
     DEFAULT_LEARNING_RATE = 1e-2
     DEFAULT_THRESHOLD = 20.0
@@ -154,7 +154,6 @@ def setup_training(data_files):
         batch_size=batch_size,
         threshold=threshold
     )
-
 
 # def setup_run(device, data_files, weight_files):
 #     """Sets up and runs an existing model.

@@ -31,8 +31,15 @@ class AttentionFunction(nn.Module):
         self.symmetry = nn.Linear(1, hidden_dim, bias=False)
 
     def split_heads(self, x):
-        # Input: (N, D)
-        # Output: (H, N, D/H)
+        """
+        Splits the input tensor into multiple heads.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (N, D).
+
+        Returns:
+            torch.Tensor: Tensor of shape (H, N, D/H), where H is the number of heads.
+        """
         N = x.size(0)
         head_dim = self.hidden_dim // self.num_heads
         x = x.view(N, self.num_heads, head_dim)  # (N, H, D/H)
@@ -85,13 +92,13 @@ class AttentionFunction(nn.Module):
 
         # LayerNorm + sigmoid
         alpha = alpha_raw.permute(1, 0, 2).reshape(N, -1)           # (N, 3D)
-        alpha = torch.sigmoid(self.layer_norm(alpha))              # (N, 3D)
+        alpha = torch.sigmoid(self.layer_norm(alpha))               # (N, 3D)
         alpha = alpha.view(N, self.num_heads, feature_dim_per_head).permute(1, 0, 2)  # (H, N, 3D/H)
 
         # Symmetry projection: (N,) → (N, 1) → (H, N, D/H)
         m_sym = m_sym.unsqueeze(-1)  # (N, 1)
-        sym_proj = self.split_heads(self.symmetry(m_sym))          # (H, N, D/H)
-        symmetry = 1 + sym_proj * edge_trans                       # (H, N, D/H)
+        sym_proj = self.split_heads(self.symmetry(m_sym))           # (H, N, D/H)
+        symmetry = 1 + sym_proj * edge_trans                        # (H, N, D/H)
         symmetry = symmetry.repeat(1, 1, 3)                         # (H, N, 3D/H)
 
         # Validity modifier

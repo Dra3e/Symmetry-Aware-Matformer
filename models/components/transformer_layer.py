@@ -83,7 +83,7 @@ class TransformerLayer(nn.Module):
         )
 
         # Use scatter_add to accumulate values across nodes
-        m_i_chunk.scatter_add(
+        m_i_chunk.scatter_add_(
             0,  # Dimension for accumulation
             edge_chunk[:, 5, 0].long().unsqueeze(1).expand(-1, m_i_per_edge.size(1)),  # Indices, expanded to match feature size
             m_i_per_edge  # Values to add

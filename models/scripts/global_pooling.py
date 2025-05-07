@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class GlobalPooling(nn.Module):
-    """ Script class for performing """
+    """Performs global pooling by summing the features of atoms in a crystal."""
     def __init__(self):
         """ Initializes an instance of the GlobalPooling class """
         super(GlobalPooling, self).__init__()
@@ -22,12 +22,3 @@ class GlobalPooling(nn.Module):
         pooled_features = torch.sum(updated_features, dim=0)
 
         return pooled_features
-    
-    def to(self, device):
-        """
-        Move the GlobalPooling instance to the specified device.
-        
-        Args:
-            device (torch.device): The device to move the instance to.
-        """
-        return self

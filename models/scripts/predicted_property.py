@@ -14,7 +14,7 @@ class PredictedProperty(nn.Module):
 
         Args:
             input_dim (int): Dimension of the input features.
-            hidden_dim (int): Dimension of the hidden/outputs layer.
+            hidden_dim (int): Dimension of the hidden and outputs layer.
         """
         super(PredictedProperty, self).__init__()
         self.LN1 = nn.Linear(input_dim, hidden_dim)  # First Linear Transform
@@ -26,7 +26,7 @@ class PredictedProperty(nn.Module):
             y_property = LinearTransform(SiLu(LinearTransform(F_crystal)))
 
         Parameters:
-            pooled_features: The pooled features of the entire crystal.
+            pooled_features (torch.Tensor): The pooled features of the entire crystal.
 
         Returns:
             y_property: The value of the predicted property of the crystal.
@@ -34,7 +34,6 @@ class PredictedProperty(nn.Module):
         transformed = self.LN1(pooled_features) # Compute LN(F_out) 
         activated = torch.nn.functional.silu(transformed) # Apply SiLU activation
         y_property = self.LN2(activated) # Apply second Linear Transformation
-
         return y_property
     
     def to(self, device):
