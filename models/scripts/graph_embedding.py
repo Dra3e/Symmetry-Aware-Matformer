@@ -7,7 +7,7 @@ from mendeleev import element
 
 class GraphEmbedder(nn.Module):
     """ Script class for embedding crystal graphs"""
-    def __init__(self, atom_feature_dim, hidden_dim, num_rbf_kernels=50):
+    def __init__(self, atom_feature_dim, hidden_dim, num_rbf_kernels=50, min_rbf_dist=0.0, max_rbf_dist=8.0):
         """
         Initializes the GraphEmbedder with its hidden dimensions.
 
