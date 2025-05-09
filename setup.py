@@ -1,7 +1,11 @@
 import os
+import random
+import numpy as np
 import torch
 
 from torch.utils.data import DataLoader
+from models.components.ACG import ACG
+from training.engine import SAM_TrainingEngine
 from training.trainer import run, graph_collate
 from training.evaluator import compute_loss
 from models.Transformer import Transformer
@@ -108,19 +112,19 @@ def setup_training(data_files):
     DEFAULT_NUM_EPOCHS = 50
     DEFAULT_BATCH_SIZE = 32
     DEFAULT_LEARNING_RATE = 1e-2
-    DEFAULT_THRESHOLD = 5.0
+    DEFAULT_MARGIN = 10.0
 
     num_epochs = DEFAULT_NUM_EPOCHS
     batch_size = DEFAULT_BATCH_SIZE
     learning_rate = DEFAULT_LEARNING_RATE
-    threshold = DEFAULT_THRESHOLD
+    margin = DEFAULT_MARGIN
 
     print(
         f"Default settings:\n"
         f"Number of epochs: {num_epochs}\n"
         f"Batch size: {batch_size}\n"
         f"Learning rate: {learning_rate}\n"
-        f"Threshold for separating valid and invalid crystals: {threshold}\n"
+        f"Margin for separating valid and invalid crystals: {margin}\n"
     )
     default = input("Run using default settings?\n (Y/N): ").strip().upper()
     
@@ -129,19 +133,31 @@ def setup_training(data_files):
             num_epochs = int(input(f"Number of epochs (Default: {DEFAULT_NUM_EPOCHS}):"))
             batch_size = int(input(f"Batch size (Default: {DEFAULT_BATCH_SIZE});"))
             learning_rate = float(input(f"Learning rate (Default: {DEFAULT_LEARNING_RATE}):"))
-            threshold = float(input(f"Threshold (Default: {DEFAULT_THRESHOLD}):"))
+            margin = float(input(f"Margin (Default: {DEFAULT_MARGIN}):"))
         except ValueError:
             print("Invalid input. Using default settings.")
 
     print("Training...")
-    run(
+    # run(
+    #     property_mapping[property_names[chosen_property]],
+    #     training_path=os.path.join(DATA_PATH, data_files[test_choice]),
+    #     validation_path=os.path.join(DATA_PATH, data_files[validation_choice]),
+    #     num_epochs=num_epochs,
+    #     batch_size=batch_size,
+    #     learning_rate=learning_rate,
+    #     margin=margin)
+    acg = ACG()
+    SAM_TrainingEngine(
+        learning_rate=learning_rate,
+    ).fit(
         property_mapping[property_names[chosen_property]],
+        graph_builder=acg.build_graphs,
         training_path=os.path.join(DATA_PATH, data_files[test_choice]),
         validation_path=os.path.join(DATA_PATH, data_files[validation_choice]),
         num_epochs=num_epochs,
         batch_size=batch_size,
-        learning_rate=learning_rate,
-        threshold=threshold)
+        margin=margin
+    )
 
 
 def setup_run(device, data_files, weight_files):
@@ -179,21 +195,21 @@ def setup_run(device, data_files, weight_files):
     # Re-wrap the saved tensor as a Parameter
     factors = checkpoint['factors'].to(device)
     
-    target_property = checkpoint['property']
-    threshold = checkpoint['threshold']
-    print("Loading model...")
-    dataset, target_properties = get_training_data_from_pkl(target_property, os.path.join(DATA_PATH, data_files[data_choice]))
-    graphs = CrystalGraphDataset(dataset, target_properties)
-    dataloader = DataLoader(graphs,
-                      batch_size=25,
-                      shuffle=False,
-                      collate_fn=graph_collate,
-                      num_workers=4, pin_memory=True)
+#     target_property = checkpoint['property']
+#     margin = checkpoint['margin']
+#     print("Loading model...")
+#     dataset, target_properties = get_training_data_from_pkl(target_property, os.path.join(DATA_PATH, data_files[data_choice]))
+#     graphs = CrystalGraphDataset(dataset, target_properties)
+#     dataloader = DataLoader(graphs,
+#                       batch_size=25,
+#                       shuffle=False,
+#                       collate_fn=graph_collate,
+#                       num_workers=4, pin_memory=True)
 
-    print("Computing loss...")
-    eval_loss = compute_loss(model, dataloader, factors, device, threshold)
-    print(f"The MSA = {eval_loss}")
-    input("Press Enter to continue > ")        
+#     print("Computing loss...")
+#     eval_loss = compute_loss(model, dataloader, factors, device, margin)
+#     print(f"The MSA = {eval_loss}")
+#     input("Press Enter to continue > ")        
 
 def list_files(files):
     file_list = []
