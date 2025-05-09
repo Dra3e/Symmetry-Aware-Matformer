@@ -74,7 +74,7 @@ class SAM_TrainingEngine:
                     assert torch.isnan(target_values).sum() == 0, "Target values contain NaN."
                     # Move crystals and targets to device
                     graphs, target_values = self._move_to_device(graphs, target_values)
-                    with torch.cuda.amp.autocast(enabled=(self.device.type == 'cuda')): # Mixed precision
+                    with torch.cuda.amp.autocast(enabled=(self.device.type == 'cuda'), dtype=torch.bfloat16): # Mixed precision
                         # Forward pass and compute loss
                         model_loss = self._get_loss(
                             graph_batch=graphs, 
@@ -142,7 +142,7 @@ class SAM_TrainingEngine:
                 graphs = [[g.to(self.device) for g in g_list] for g_list in graphs]  # Move each graph to the device
                 target_values = target_values.to(self.device)
 
-                with torch.cuda.amp.autocast(enabled=(self.device.type == 'cuda')):
+                with torch.cuda.amp.autocast(enabled=(self.device.type == 'cuda'), dtype=torch.bfloat16):
                     # Forward pass and compute loss
                     total = self._get_loss(
                         graph_batch=graphs, 
