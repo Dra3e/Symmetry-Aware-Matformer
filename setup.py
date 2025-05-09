@@ -107,19 +107,19 @@ def setup_training(data_files):
     DEFAULT_NUM_EPOCHS = 1 
     DEFAULT_BATCH_SIZE = 32
     DEFAULT_LEARNING_RATE = 1e-2
-    DEFAULT_THRESHOLD = 20.0
+    DEFAULT_MARGIN = 20.0
 
     num_epochs = DEFAULT_NUM_EPOCHS
     batch_size = DEFAULT_BATCH_SIZE
     learning_rate = DEFAULT_LEARNING_RATE
-    threshold = DEFAULT_THRESHOLD
+    margin = DEFAULT_MARGIN
 
     print(
         f"Default settings:\n"
         f"Number of epochs: {num_epochs}\n"
         f"Batch size: {batch_size}\n"
         f"Learning rate: {learning_rate}\n"
-        f"Threshold for separating valid and invalid crystals: {threshold}\n"
+        f"Margin for separating valid and invalid crystals: {margin}\n"
     )
     default = input("Run using default settings?\n (Y/N): ").strip().upper()
     
@@ -128,7 +128,7 @@ def setup_training(data_files):
             num_epochs = int(input(f"Number of epochs (Default: {DEFAULT_NUM_EPOCHS}):"))
             batch_size = int(input(f"Batch size (Default: {DEFAULT_BATCH_SIZE});"))
             learning_rate = float(input(f"Learning rate (Default: {DEFAULT_LEARNING_RATE}):"))
-            threshold = float(input(f"Threshold (Default: {DEFAULT_THRESHOLD}):"))
+            margin = float(input(f"Margin (Default: {DEFAULT_MARGIN}):"))
         except ValueError:
             print("Invalid input. Using default settings.")
 
@@ -140,7 +140,7 @@ def setup_training(data_files):
     #     num_epochs=num_epochs,
     #     batch_size=batch_size,
     #     learning_rate=learning_rate,
-    #     threshold=threshold)
+    #     margin=margin)
     acg = ACG()
     SAM_TrainingEngine(
         learning_rate=learning_rate,
@@ -152,7 +152,7 @@ def setup_training(data_files):
         loss_type="multi",
         num_epochs=num_epochs,
         batch_size=batch_size,
-        threshold=threshold
+        margin=margin
     )
 
 # def setup_run(device, data_files, weight_files):
@@ -191,7 +191,7 @@ def setup_training(data_files):
 #     factors = checkpoint['factors'].to(device)
     
 #     target_property = checkpoint['property']
-#     threshold = checkpoint['threshold']
+#     margin = checkpoint['margin']
 #     print("Loading model...")
 #     dataset, target_properties = get_training_data_from_pkl(target_property, os.path.join(DATA_PATH, data_files[data_choice]))
 #     graphs = CrystalGraphDataset(dataset, target_properties)
@@ -202,7 +202,7 @@ def setup_training(data_files):
 #                       num_workers=4, pin_memory=True)
 
 #     print("Computing loss...")
-#     eval_loss = compute_loss(model, dataloader, factors, device, threshold)
+#     eval_loss = compute_loss(model, dataloader, factors, device, margin)
 #     print(f"The MSA = {eval_loss}")
 #     input("Press Enter to continue > ")        
 
