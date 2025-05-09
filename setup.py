@@ -133,14 +133,6 @@ def setup_training(data_files):
             print("Invalid input. Using default settings.")
 
     print("Training...")
-    # run(
-    #     property_mapping[property_names[chosen_property]],
-    #     training_path=os.path.join(DATA_PATH, data_files[test_choice]),
-    #     validation_path=os.path.join(DATA_PATH, data_files[validation_choice]),
-    #     num_epochs=num_epochs,
-    #     batch_size=batch_size,
-    #     learning_rate=learning_rate,
-    #     margin=margin)
     acg = ACG()
     SAM_TrainingEngine(
         learning_rate=learning_rate,

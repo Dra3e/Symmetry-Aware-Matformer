@@ -12,7 +12,7 @@ class SAM_TrainingEngine:
     """
     Training engine for the SAM model, which handles the training and evaluation process.
     """
-    def __init__(self, learning_rate = 1e-4):
+    def __init__(self, learning_rate = 1e-2):
         """
         Initialize the training engine.
 
@@ -29,7 +29,7 @@ class SAM_TrainingEngine:
         # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
         self.scaler = torch.cuda.amp.GradScaler(enabled=(self.device.type == 'cuda'))
     
-    def fit(self, property, training_path: str, validation_path: str, graph_builder: Callable[[Crystal], list], loss_type = "multi", num_epochs = 50, batch_size = 32, margin = 5.0):
+    def fit(self, property, training_path: str, validation_path: str, graph_builder: Callable[[Crystal], list], loss_type = "multi", evaluation_loss_type="mse", num_epochs = 50, batch_size = 32, margin = 5.0):
         """
         Train the model on the given dataset.
 
@@ -96,7 +96,7 @@ class SAM_TrainingEngine:
                 # Evaluate validation loss
                 eval_loss = self.run(
                     dataloader=eval_dataloader,
-                    loss_type="mse",
+                    loss_type=evaluation_loss_type,
                     margin=margin
                 )
                 print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {epoch_loss / num_data_points:.4f}, Eval Loss: {eval_loss:.4f}")
@@ -119,6 +119,7 @@ class SAM_TrainingEngine:
             print(f"Best model saved with Val Loss: {best_eval_loss:.4f}")
 
         print("Training Complete!")
+        return best_eval_loss
 
     def run(self, dataloader, loss_type = "mse", margin=5.0):
         """
