@@ -105,20 +105,19 @@ class MultiTaskLoss(torch.nn.Module):
         return loss.mean()
     
     @staticmethod
-    def LossContrastive_Vectorized(latent_ref, latents, flags, threshold):
-        """
-        Vectorised contrastive loss.
-        latent_ref : (F,) or (1,F)
-        latents    : (N,F)
-        flags      : (N,)  – 1 ⇢ positive pair, 0 ⇢ negative pair
-        """
-        # (N,F) – broadcast subtract
-        diff = latents - latent_ref.unsqueeze(0)        # add batch‑dim to ref
-        # (N,)  – Euclidean distance for every j
-        distances = torch.norm(diff, dim=1)
+    def LossContrastive_Vectorized(latent_ref, latents, flags, margin):
+        if latents.numel() == 0:                      # nothing to compare with
+            # Return *zero* so the other task still back‑propagates
+            return torch.zeros(1, device=latent_ref.device, requires_grad=True)
 
-        # Contrastive loss per pair
-        pos = flags * distances.pow(2)
-        neg = (1 - flags) * torch.clamp(threshold - distances, min=0.0).pow(2)
+        pos = latents[flags == 1]
+        neg = latents[flags == 0]
 
-        return (pos + neg).mean()
+        dist_pos = torch.norm(pos - latent_ref, dim=1) if pos.numel() else None
+        dist_neg = torch.norm(neg - latent_ref, dim=1) if neg.numel() else None
+
+        loss_pos = dist_pos.pow(2).mean() if dist_pos is not None else 0.0
+        loss_neg = torch.clamp(margin - dist_neg, min=0).pow(2).mean() \
+                if dist_neg is not None else 0.0
+
+        return (loss_pos + loss_neg)        # always finite; gradients flow

@@ -70,6 +70,7 @@ class SAM_TrainingEngine:
                 epoch_loss = 0.0 # Initialize epoch loss
 
                 for graphs, target_values in tqdm(training_dataloader, desc="Training on crystals", unit="batch"):
+                    print() # newline
                     # Move crystals and targets to device
                     graphs, target_values = self._move_to_device(graphs, target_values)
                     with torch.cuda.amp.autocast(enabled=(self.device.type == 'cuda')): # Mixed precision
@@ -155,37 +156,62 @@ class SAM_TrainingEngine:
         return total_loss / sample_count if sample_count > 0 else float('inf')
     
     def _get_loss(self, loss_type, graph_batch, target_values, margin=5.0):
-        results = [self.model(graph_list) for graph_list in graph_batch]
+        """
+        Compute the loss for a batch of graphs.
+
+        Args:
+            loss_type (str): Type of loss to use ("multi", "mse", or "contrastive").
+            graph_batch (list): Batch of graphs.
+            target_values (torch.Tensor): Target values for the batch.
+            margin (float): margin for contrastive loss.
+
+        Returns:
+            torch.Tensor: Computed loss for the batch.
+        """
+        results = [self.model(graphs=graph_list) for graph_list in graph_batch]
         batch_property_losses = []
         batch_contrastive_losses = []
+        valid_grah_index = -1 # The last graph in the batch is the valid graph (e.g. the crystal)
 
         for i, (predictions, latents, graph_list) in enumerate(results):
             target = target_values[i]
-            latent_ref = latents[-1]
 
+            valid_prediction = predictions[valid_grah_index] #Get the prediction of the valid graph e.g. the crystal
+            loss_property = MultiTaskLoss.LossProperty(
+                actual_Y = target.expand_as(valid_prediction),
+                predicted_Y = valid_prediction
+            )
+
+            
             flags = torch.tensor([g.m_valid for g in graph_list], dtype=torch.float32, device=self.device)
-
-            loss_property = MultiTaskLoss.LossProperty(actual_Y=target.expand_as(predictions[-1]), predicted_Y=predictions[-1])
-            mean_loss_contrastive = MultiTaskLoss.LossContrastive_Vectorized(
-                latent_ref=latent_ref,
-                latents=latents,
-                flags=flags,
-                margin=margin
+            lat_slice   = latents[:valid_grah_index]
+            flag_slice  = flags[:valid_grah_index]
+            if lat_slice.numel() == 0:                       # ← no augments this crystal
+                mean_loss_contrastive = torch.zeros(          # keep graph‑level shape
+                    1, device=self.device, requires_grad=True)
+            else:
+                mean_loss_contrastive = MultiTaskLoss.LossContrastive_Vectorized(
+                    latent_ref = latents[valid_grah_index],
+                    latents    = lat_slice,
+                    flags      = flag_slice,
+                    margin     = margin,
             )
 
             batch_property_losses.append(loss_property)
             batch_contrastive_losses.append(mean_loss_contrastive)
 
+        # Aggregate losses
         loss_property_batch = torch.stack(batch_property_losses).mean()
         loss_contrastive_batch = torch.stack(batch_contrastive_losses).mean()
 
         if loss_type == "multi":
+            multi_loss = self.multi_loss(loss_property_batch, loss_contrastive_batch)
             print("Property loss:", loss_property_batch.item())
             print("Contrastive loss:", loss_contrastive_batch.item())
             print("Log vars:", self.multi_loss.log_vars.detach().cpu().numpy())
-            print("Multi factor loss:", self.multi_loss(loss_property_batch, loss_contrastive_batch).item())
+            print("Multi factor loss:", multi_loss.item())
+            return multi_loss
 
-            return self.multi_loss(loss_property_batch, loss_contrastive_batch)
         elif loss_type == "mse":
             return loss_property_batch
         elif loss_type == "contrastive":
