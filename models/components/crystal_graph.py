@@ -31,7 +31,7 @@ class CrystalGraph(nn.Module):
             self.edges = torch.tensor(edges, dtype=torch.float32, device=nodes.device)
 
     @classmethod
-    def init_from_crystal(cls, crystal, translation_vectors, m_valid=1, config=3.0):
+    def init_from_crystal(cls, crystal, m_valid=1, config=3.0):
         """
         Creates a CrystalGraph instance from a given crystal structure.
 
@@ -47,16 +47,8 @@ class CrystalGraph(nn.Module):
             CrystalGraph instance.
         """
         nodes = crystal.A # Atomic feature matrix
-        if not isinstance(translation_vectors, torch.Tensor): # turns translation_vectors from list to tensor for matrix operations below
-            translation_vectors = (
-                torch.empty(0, 3, dtype=crystal.X.dtype, device=crystal.X.device)
-                if len(translation_vectors) == 0
-                else torch.stack(list(translation_vectors), dim=0).to(crystal.X)
-            )
         base_edges = _pair_edges(crystal.X, config, m_valid, m_sym=0)
-
-        if translation_vectors.numel() == 0:           # no periodic edges needed
-            return cls(nodes=nodes, edges=base_edges, m_valid=m_valid, config=config)
+        translation_vectors = crystal.get_translation_vectors_to_neighbour_cells(config) # (T,3)  @ crystal.L : (3,3)  = (T,3)  for all T translations
 
         # ---------- periodic edges (broadcast) ----------
         # crystal.X : (N,3)          translation_vectors : (T,3)
@@ -75,7 +67,7 @@ class CrystalGraph(nn.Module):
         return cls(nodes=nodes, edges=edges, m_valid=m_valid, config=config)
     
     @classmethod
-    def init_from_augmented_crystal(cls, original_crystal, augmented_crystals, translation_vectors, m_valid=1, config=3.0):
+    def init_from_augmented_crystal(cls, original_crystal, augmented_crystals, m_valid=1, config=3.0):
         """
         Creates a CrystalGraph with additional self-loop edges for atomic displacements.
         
@@ -91,7 +83,7 @@ class CrystalGraph(nn.Module):
         Returns:
             CrystalGraph instance with augmented self-loops.
         """
-        base = cls.init_from_crystal(original_crystal, translation_vectors, m_valid, config)           # uses vectorised ver.
+        base = cls.init_from_crystal(original_crystal, m_valid, config)           # uses vectorised ver.
         nodes, edges = base.nodes, base.edges
 
         # --------- self-loops for augmentations (vectorised) ----------
@@ -114,7 +106,7 @@ class CrystalGraph(nn.Module):
         return cls(nodes=nodes, edges=edges, config=config, m_valid=m_valid)
 
     @staticmethod
-    def create_batch(crystals, translation_vectors, m_valid=1):
+    def create_batch(crystals, m_valid=1):
         """
         Creates a batch of CrystalGraph objects from a list of crystals.
 
@@ -128,7 +120,7 @@ class CrystalGraph(nn.Module):
         Returns:
             List of CrystalGraph instances.
         """
-        return [CrystalGraph.init_from_crystal(crystal, translation_vectors, m_valid) for crystal in crystals]
+        return [CrystalGraph.init_from_crystal(crystal, m_valid) for crystal in crystals]
     
     def to(self, device):
         self.nodes = self.nodes.to(device)

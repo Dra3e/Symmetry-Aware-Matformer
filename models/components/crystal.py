@@ -1,6 +1,31 @@
 import torch
 import spglib
 import numpy as np
+import os
+import contextlib
+
+# Context manager to suppress stderr (used to silence spglib internal warnings)
+@contextlib.contextmanager
+def suppress_spglib_warnings():
+    """
+    Suppresses C-level warnings printed to stdout/stderr by spglib without hiding real Python exceptions.
+    """
+    with open(os.devnull, 'w') as devnull:
+        # Save the real stdout (1) and stderr (2) file descriptors
+        old_stdout_fd = os.dup(1)
+        old_stderr_fd = os.dup(2)
+
+        try:
+            # Redirect stdout and stderr to /dev/null
+            os.dup2(devnull.fileno(), 1)
+            os.dup2(devnull.fileno(), 2)
+            yield
+        finally:
+            # Restore original file descriptors
+            os.dup2(old_stdout_fd, 1)
+            os.dup2(old_stderr_fd, 2)
+            os.close(old_stdout_fd)
+            os.close(old_stderr_fd)
 
 class Crystal:
     """
@@ -54,44 +79,40 @@ class Crystal:
     
     def get_symmetry_operations(self):
         """
-        Find the symmetry operations that maintain the crystal structure, as per E(3) and periodic invariance.
-        Assumes first column of A is atomic number or other unique identifier per atom type.
-
-        Returns:
-            rotation_matrices: List of 3x3 rotation matrices (torch.Tensor) representing symmetry operations.
-            translation_vectors: List of 3D translation vectors (torch.Tensor) corresponding to each rotation.
+        Returns a list of proper 3×3 rotation matrices (torch.Tensor) – no translations,
+        no extra dimensions, identity removed.
         """
-        # Convert torch tensors to numpy
-        lattice = self.L.cpu().numpy()
-        positions = self.X.cpu().numpy() @ np.linalg.inv(lattice)  # fractional coords
-        try:
-            numbers = self.A[:, 0].int().cpu().numpy()  # Assumes first column of A is atomic number
-        except:
-            raise ValueError("Cannot extract atomic numbers from self.A. Ensure atomic number is in first column.")
+        lattice   = self.L.cpu().numpy()
+        positions = self.X.cpu().numpy() @ np.linalg.inv(lattice)      # fractional
+        numbers   = self.A[:, 0].int().cpu().numpy()                   # Z of each atom
+        cell      = (lattice, positions, numbers)
 
-        # Create crystal structure tuple for spglib
-        cell = (lattice, positions, numbers)
+        with suppress_spglib_warnings():
+            dataset = spglib.get_symmetry_dataset(cell)
 
-        # Get symmetry dataset from spglib
-        dataset = spglib.get_symmetry_dataset(cell)
+        # (N, 3, 3) → torch tensor on same device / dtype as L
+        R_all = torch.as_tensor(dataset.rotations,
+                                dtype=self.L.dtype, device=self.L.device)          # (N,3,3)
 
-        # Extract rotations and translations
-        raw_rotations = dataset.rotations        # shape: (N, 3, 3)
-        raw_translations = dataset.translations  # shape: (N, 3)
+        # drop the identity (within a small tolerance)
+        eye   = torch.eye(3, dtype=self.L.dtype, device=self.L.device)
+        mask  = (R_all - eye).abs().sum(dim=(1, 2)) > 1e-6                         # (N,)
+        R_all = R_all[mask]                                                        # (K,3,3)
 
-        identity = torch.eye(3)
-
-        rotation_matrices = []
-        translation_vectors = []
-
-        for R, t in zip(raw_rotations, raw_translations):
-            R_tensor = torch.tensor(R, dtype=torch.float32)
-            t_tensor = torch.tensor(t, dtype=torch.float32)
-            if not torch.allclose(R_tensor, identity):  # Filter out identity rotation
-                rotation_matrices.append(R_tensor.to(self.L.device))
-                translation_vectors.append(t_tensor.to(self.L.device))
-
-        return rotation_matrices, translation_vectors
+        # return a *list* so `for op in sym_ops:` yields a 3×3 tensor each time
+        return [R for R in R_all]
+    
+    def get_translation_vectors_to_neighbour_cells(self, cutoff):
+        max_n = int(np.ceil(cutoff / min(np.linalg.norm(self.L, axis=1))))  # worst‑case
+        shifts = torch.tensor(
+            [[i, j, k]  for i in range(-max_n, max_n + 1)
+                        for j in range(-max_n, max_n + 1)
+                        for k in range(-max_n, max_n + 1)
+                        if (i, j, k) != (0, 0, 0)],
+            dtype=self.L.dtype,
+            device=self.L.device
+        )                                 # (M,3)  of integer offsets
+        return shifts
     
     def apply_augmentations(self, symmetry_operations):
         """

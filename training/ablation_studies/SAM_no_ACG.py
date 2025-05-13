@@ -9,7 +9,7 @@ def NoACG(crystal_property, learning_rate, training_data_file, validation_data_f
     return SAM_TrainingEngine(
         learning_rate=learning_rate,
     ).fit(
-        property_mapping=crystal_property,
+        property=crystal_property,
         training_path=os.path.join(DATA_PATH, training_data_file),
         validation_path=os.path.join(DATA_PATH, validation_data_file),
         graph_builder=build_graphs,
@@ -20,8 +20,10 @@ def NoACG(crystal_property, learning_rate, training_data_file, validation_data_f
         margin=margin
     )
 
-def build_graphs(self, C: Crystal):
+def build_graphs(C: Crystal):
     g_valid = CrystalGraph.init_from_crystal(
-        C, m_valid=1, config=self.cutoff
+        crystal=C,
+        m_valid=1,
+        config=3.0,
     )
     return [g_valid]

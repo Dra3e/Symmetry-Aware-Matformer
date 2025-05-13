@@ -2,23 +2,30 @@ import torch
 import spglib
 import tqdm
 import os
-import sys
 import contextlib
 
-# Context manager to suppress stderr (used to silence spglib internal warnings)
+# Context manager to suppress low-level internal spglib warnings
 @contextlib.contextmanager
-def suppress_stderr():
+def suppress_spglib_warnings():
     """
-    Suppress stderr output.
+    Suppresses both stdout and stderr at the OS level to hide internal warnings
+    from spglib, including those printed from compiled C code.
     """
-    # Open the null device — 'nul' for Windows, '/dev/null' for Unix; os.devnull handles it cross-platform
     with open(os.devnull, 'w') as devnull:
-        old_stderr = sys.stderr # Save the current stderr stream
+        # Save original file descriptors for stdout (1) and stderr (2)
+        old_stdout_fd = os.dup(1)
+        old_stderr_fd = os.dup(2)
         try:
-            sys.stderr = devnull # Redirect stderr to null (suppress output)
+            # Redirect stdout and stderr to /dev/null (suppresses console output)
+            os.dup2(devnull.fileno(), 1)
+            os.dup2(devnull.fileno(), 2)
             yield
         finally:
-            sys.stderr = old_stderr # Restore original stderr stream
+            # Restore original stdout and stderr
+            os.dup2(old_stdout_fd, 1)
+            os.dup2(old_stderr_fd, 2)
+            os.close(old_stdout_fd)
+            os.close(old_stderr_fd)
 
 class InvalidAugmenter:
     '''Script class for getting all unique symmetry operations for the crystals and a method that returns all symmetry operations that are not valid'''
@@ -28,7 +35,7 @@ class InvalidAugmenter:
         from the spglib database and storing them as PyTorch tensors."""
         all_rotations = set()
         for i in tqdm.tqdm(range(1, 231), desc="Processing Symmetry Datasets", unit="hall marks"): # Loops through all of the hall numbers, and creates a loading bar in the terminal
-            with suppress_stderr(): # Suppress spglib warnings for unsupported or broken hall numbers
+            with suppress_spglib_warnings(): # Suppress spglib warnings for unsupported or broken hall numbers
                 dataset = spglib.get_symmetry_from_database(hall_number=i) # Get symmetry operations from the database
 
             if dataset is None:

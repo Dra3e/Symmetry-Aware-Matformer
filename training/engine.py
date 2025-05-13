@@ -12,7 +12,7 @@ class SAM_TrainingEngine:
     """
     Training engine for the SAM model, which handles the training and evaluation process.
     """
-    def __init__(self, learning_rate = 1e-2):
+    def __init__(self, learning_rate = 3e-4):
         """
         Initialize the training engine.
 
@@ -22,9 +22,11 @@ class SAM_TrainingEngine:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = Transformer().to(self.device)
         self.multi_loss = MultiTaskLoss(n_tasks=2).to(self.device)
-        self.model_optimizer = torch.optim.Adam(
-            list(self.model.parameters()) + list(self.multi_loss.parameters()), 
-            lr=learning_rate
+        self.model_optimizer = torch.optim.AdamW(
+            list(self.model.parameters()) + list(self.multi_loss.parameters()),
+            lr           =learning_rate,          # typical baseline for transformers
+            betas        = (0.9, 0.98),   # same as "Noam" paper defaults
+            weight_decay = 1e-2
         ) # Optimizer for model and loss parameters
         # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
         self.scaler = torch.cuda.amp.GradScaler(enabled=(self.device.type == 'cuda'))
@@ -52,7 +54,6 @@ class SAM_TrainingEngine:
                 shuffle        = True,         # shuffle only on the training split
         )
         training_dataloader = training_data_getter.loader
-        num_data_points = training_data_getter.num_data_points
         eval_dataloader = DataGetter(
                 path           = validation_path,
                 property_name  = property,
@@ -64,47 +65,45 @@ class SAM_TrainingEngine:
         best_model_state = None                 # Store the best model state
 
         # Training loop
-        with torch.autograd.set_detect_anomaly(True): # Enable anomaly detection for debugging
-            for epoch in range(num_epochs):
-                self.model.train() # Set model to training mode
-                epoch_loss = 0.0 # Initialize epoch loss
+        for epoch in range(num_epochs):
+            self.model.train() # Set model to training mode
+            epoch_loss = 0.0 # Initialize epoch loss
 
-                for graphs, target_values in tqdm(training_dataloader, desc="Training on crystals", unit="batch"):
-                    print() # newline
-                    # Move crystals and targets to device
-                    graphs, target_values = self._move_to_device(graphs, target_values)
-                    with torch.cuda.amp.autocast(enabled=(self.device.type == 'cuda'), dtype=torch.bfloat16): # Mixed precision
-                        # Forward pass and compute loss
-                        model_loss = self._get_loss(
-                            graph_batch=graphs, 
-                            loss_type=loss_type, 
-                            target_values=target_values, 
-                            margin=margin
-                        )
+            for graphs, target_values in tqdm(training_dataloader, desc="Training on crystals", unit="batch"):
+                # Move crystals and targets to device
+                graphs, target_values = self._move_to_device(graphs, target_values)
+                with torch.cuda.amp.autocast(enabled=(self.device.type == 'cuda'), dtype=torch.bfloat16): # Mixed precision
+                    # Forward pass and compute loss
+                    model_loss = self._get_loss(
+                        graph_batch=graphs, 
+                        loss_type=loss_type, 
+                        target_values=target_values, 
+                        margin=margin
+                    )
                     # Backpropagation and optimization
-                        self.model_optimizer.zero_grad()
-                        if model_loss.requires_grad and model_loss.grad_fn is not None:
-                            self.scaler.scale(model_loss).backward()
-                            self.scaler.step(self.model_optimizer)
-                            self.scaler.update()
-                        else:
-                            print("⚠️ Skipping batch: No gradient flow detected.")
+                    self.model_optimizer.zero_grad()
+                    if model_loss.requires_grad and model_loss.grad_fn is not None:
+                        self.scaler.scale(model_loss).backward()
+                        self.scaler.step(self.model_optimizer)
+                        self.scaler.update()
+                    else:
+                        print("⚠️ Skipping batch: No gradient flow detected.")
 
-                    epoch_loss += model_loss.item()
+                epoch_loss += model_loss.item()
 
-            
-                # Evaluate validation loss
-                eval_loss = self.run(
-                    dataloader=eval_dataloader,
-                    loss_type=evaluation_loss_type,
-                    margin=margin
-                )
-                print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {epoch_loss / num_data_points:.4f}, Eval Loss: {eval_loss:.4f}")
+        
+            # Evaluate validation loss
+            eval_loss = self.run(
+                dataloader=eval_dataloader,
+                loss_type=evaluation_loss_type,
+                margin=margin
+            )
+            print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {epoch_loss / len(training_dataloader):.4f}, Eval Loss: {eval_loss:.4f}")
 
-                # Save the best model
-                if eval_loss < best_eval_loss:
-                    best_eval_loss = eval_loss
-                    best_model_state = self.model.state_dict().copy()
+            # Save the best model
+            if eval_loss < best_eval_loss:
+                best_eval_loss = eval_loss
+                best_model_state = self.model.state_dict().copy()
 
         # Save the best model
         if best_model_state:
@@ -207,10 +206,6 @@ class SAM_TrainingEngine:
 
         if loss_type == "multi":
             multi_loss = self.multi_loss(loss_property_batch, loss_contrastive_batch)
-            print("Property loss:", loss_property_batch.item())
-            print("Contrastive loss:", loss_contrastive_batch.item())
-            print("Log vars:", self.multi_loss.log_vars.detach().cpu().numpy())
-            print("Multi factor loss:", multi_loss.item())
             return multi_loss
 
         elif loss_type == "mse":

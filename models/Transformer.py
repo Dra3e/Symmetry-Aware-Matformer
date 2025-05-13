@@ -48,7 +48,7 @@ class Transformer(nn.Module):
         offset = 0
         for g in graphs:
             atoms, edges = self.graph_embedder(g)            # [Ni, D] / [Ei, 6, D]
-            edges = edges.clone()
+            edges = edges.detach()                           # Detach edges to avoid gradient flow
             edges[:, 5, 0] += offset                         # ❶ shift destination index for concatenation
             atom_blocks.append(atoms)
             edge_blocks.append(edges)

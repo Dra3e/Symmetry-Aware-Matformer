@@ -11,7 +11,7 @@ def NoContrastive(crystal_property, learning_rate, training_data_file, validatio
     return SAM_TrainingEngine(
         learning_rate=learning_rate,
     ).fit(
-        property_mapping=crystal_property,
+        property=crystal_property,
         training_path=os.path.join(DATA_PATH, training_data_file),
         validation_path=os.path.join(DATA_PATH, validation_data_file),
         graph_builder=acg.build_graphs,

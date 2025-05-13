@@ -106,7 +106,7 @@ def setup_training(data_files):
     # Default training parameters
     DEFAULT_NUM_EPOCHS = 1 
     DEFAULT_BATCH_SIZE = 32
-    DEFAULT_LEARNING_RATE = 1e-2
+    DEFAULT_LEARNING_RATE = 3e-4
     DEFAULT_MARGIN = 20.0
 
     num_epochs = DEFAULT_NUM_EPOCHS
@@ -137,7 +137,7 @@ def setup_training(data_files):
     SAM_TrainingEngine(
         learning_rate=learning_rate,
     ).fit(
-        property_mapping[property_names[chosen_property]],
+        property=property_mapping[property_names[chosen_property]],
         training_path=os.path.join(DATA_PATH, data_files[test_choice]),
         validation_path=os.path.join(DATA_PATH, data_files[validation_choice]),
         graph_builder=acg.build_graphs,
