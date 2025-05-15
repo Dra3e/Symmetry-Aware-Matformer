@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from models.scripts.graph_embedding import CGCNN, EdgeTransformation
+
+from models.scripts.crystal_graph_vectorize import _pair_edges
 
 class CrystalGraph(nn.Module):
     """Graph representation of a crystal structure from models.components.crystal.py"""
@@ -30,7 +31,7 @@ class CrystalGraph(nn.Module):
             self.edges = torch.tensor(edges, dtype=torch.float32, device=nodes.device)
 
     @classmethod
-    def init_from_crystal(cls, crystal, translation_vectors, m_valid=1, config=3.0):
+    def init_from_crystal(cls, crystal, m_valid=1, config=3.0):
         """
         Creates a CrystalGraph instance from a given crystal structure.
 
@@ -46,36 +47,27 @@ class CrystalGraph(nn.Module):
             CrystalGraph instance.
         """
         nodes = crystal.A # Atomic feature matrix
-        num_nodes = nodes.shape[0]
-        edges = []
+        base_edges = _pair_edges(crystal.X, config, m_valid, m_sym=0)
+        translation_vectors = crystal.get_translation_vectors_to_neighbour_cells(config) # (T,3)  @ crystal.L : (3,3)  = (T,3)  for all T translations
 
-        # --------------------------------------------------
-        # 1) Edges inside the unit cell
-        # --------------------------------------------------
-        for i in range(num_nodes):
-            for j in range(i, num_nodes):                       # i ≤ j
-                distance = torch.norm(crystal.X[i] - crystal.X[j])
-                if distance <= config:
-                    edges.append([i, j, distance.item(), 0, m_valid, j])  # dest=j
-                    if i != j:                                           # undirected
-                        edges.append([j, i, distance.item(), 0, m_valid, i])
+        # ---------- periodic edges (broadcast) ----------
+        # crystal.X : (N,3)          translation_vectors : (T,3)
+        translated = crystal.X.unsqueeze(0) + (translation_vectors @ crystal.L)[:, None, :]
+        # translated : (T,N,3)   reshape to (T*N,3) for one call
+        periodic_edges = []
+        for t_idx in range(translated.size(0)):
+            e = _pair_edges(translated[t_idx], config, m_valid, m_sym=0)
+            # rewrite j-index so it still refers to original atom j
+            e[:, 1] %= nodes.shape[0]
+            e[:, 5] = e[:, 1]
+            periodic_edges.append(e)
+        periodic_edges = torch.cat(periodic_edges, dim=0)
 
-        # --------------------------------------------------
-        # 2) Edges for periodicity, if any
-        # --------------------------------------------------
-        for t in translation_vectors:              # may be an empty list
-            vec = t @ crystal.L                    # 3‑vector
-            for i in range(num_nodes):
-                for j in range(num_nodes):
-                    translated = crystal.X[j] + vec
-                    distance   = torch.norm(crystal.X[i] - translated)
-                    if distance <= config:
-                        edges.append([i, j, distance.item(), 0, m_valid, j])
-
-        return cls(nodes=nodes, edges=edges, config=config)
+        edges = torch.cat((base_edges, periodic_edges), dim=0)
+        return cls(nodes=nodes, edges=edges, m_valid=m_valid, config=config)
     
     @classmethod
-    def init_from_augmented_crystal(cls, original_crystal, augmented_crystals, translation_vectors, m_valid=1, config=3.0):
+    def init_from_augmented_crystal(cls, original_crystal, augmented_crystals, m_valid=1, config=3.0):
         """
         Creates a CrystalGraph with additional self-loop edges for atomic displacements.
         
@@ -91,22 +83,30 @@ class CrystalGraph(nn.Module):
         Returns:
             CrystalGraph instance with augmented self-loops.
         """
-        base_graph = cls.init_from_crystal(original_crystal, translation_vectors, config, m_valid)
-        nodes = base_graph.nodes
-        edges = base_graph.edges.tolist()  # Ensure it's list-compatible to add more rows
-        num_nodes = nodes.shape[0]
+        base = cls.init_from_crystal(original_crystal, m_valid, config)           # uses vectorised ver.
+        nodes, edges = base.nodes, base.edges
 
-        for aug in augmented_crystals:
-            if aug.X.shape[0] != original_crystal.X.shape[0]:
-                raise ValueError(f"Mismatch in number of atoms: original={original_crystal.X.shape[0]}, aug={aug.X.shape[0]}")
-            displacements = torch.norm(aug.X - original_crystal.X, dim=1) # Compute atomic displacements
-            for i in range(num_nodes):
-                edges.append([i, i, displacements[i].item(), 1, m_valid, i]) # Self-loop for augmentation tracking
+        # --------- self-loops for augmentations (vectorised) ----------
+        if augmented_crystals:
+            # Stack all displacements in one tensor: (K,N)
+            displacements = torch.stack([torch.norm(aug.X - original_crystal.X, dim=1) for aug in augmented_crystals]) # (K, N)
 
-        return cls(nodes=nodes, edges=edges, config=config)
+            # For every augmented copy k, produce N self-loops i→i
+            k_idx, atom_idx = torch.nonzero(torch.ones_like(displacements), as_tuple=True)
+            disp_flat = displacements[k_idx, atom_idx]
+
+            loop_edges = torch.stack(
+                (atom_idx, atom_idx, disp_flat,
+                torch.ones_like(atom_idx),          # Creates a matrix with the same shape as atom_idx filled with 1s. edge_type = 1  (augmented)
+                torch.full_like(atom_idx, m_valid), # Creates a matrix with the same shape as atom_idx filled with m_valid.
+                atom_idx), dim=1
+            )
+            edges = torch.cat((edges, loop_edges), dim=0)
+
+        return cls(nodes=nodes, edges=edges, config=config, m_valid=m_valid)
 
     @staticmethod
-    def create_batch(crystals, translation_vectors, m_valid=1):
+    def create_batch(crystals, m_valid=1):
         """
         Creates a batch of CrystalGraph objects from a list of crystals.
 
@@ -120,7 +120,7 @@ class CrystalGraph(nn.Module):
         Returns:
             List of CrystalGraph instances.
         """
-        return [CrystalGraph.init_from_crystal(crystal, translation_vectors, m_valid) for crystal in crystals]
+        return [CrystalGraph.init_from_crystal(crystal, m_valid) for crystal in crystals]
     
     def to(self, device):
         self.nodes = self.nodes.to(device)

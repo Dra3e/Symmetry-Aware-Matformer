@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+
 from models.scripts.attention_function import AttentionFunction
 
 class TransformerLayer(nn.Module):
@@ -82,7 +83,7 @@ class TransformerLayer(nn.Module):
         )
 
         # Use scatter_add to accumulate values across nodes
-        m_i_chunk.scatter_add(
+        m_i_chunk.scatter_add_(
             0,  # Dimension for accumulation
             edge_chunk[:, 5, 0].long().unsqueeze(1).expand(-1, m_i_per_edge.size(1)),  # Indices, expanded to match feature size
             m_i_per_edge  # Values to add
@@ -92,3 +93,16 @@ class TransformerLayer(nn.Module):
         m_i_chunk = self.out_projection(m_i_chunk)  # [M, D]
 
         return m_i_chunk
+    
+    def to(self, device):
+        """
+        Move the TransformerLayer instance to the specified device.
+        
+        Args:
+            device (torch.device): The device to move the instance to.
+        """
+        self.attention_function = self.attention_function.to(device)
+        self.linear_weight = nn.Parameter(self.linear_weight.to(device))
+        self.linear_bias = nn.Parameter(self.linear_bias.to(device))
+        self.out_projection = self.out_projection.to(device)
+        return self

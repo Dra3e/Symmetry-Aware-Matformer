@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class GlobalPooling(nn.Module):
-    """ Script class for performing """
+    """Performs global pooling by summing the features of atoms in a crystal."""
     def __init__(self):
         """ Initializes an instance of the GlobalPooling class """
         super(GlobalPooling, self).__init__()

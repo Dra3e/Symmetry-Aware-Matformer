@@ -1,4 +1,3 @@
-import torch
 import torch.nn as nn
 
 class Update(nn.Module):
@@ -12,10 +11,18 @@ class Update(nn.Module):
             hidden_dim (int): Dimension of the hidden features
         """
         super(Update, self).__init__()
-        self.weight = nn.Linear(input_dim, hidden_dim, bias=False)  # Linear transform without bias for weight
-        self.weight_projection = nn.Linear(input_dim, hidden_dim, bias=False)  # Projection for aggregated_input
-        self.LN = nn.Linear(hidden_dim, hidden_dim)
-        self.layer_norm = nn.LayerNorm(hidden_dim)
+        # --- Linear projections from raw space to model space
+        self.atom_proj = nn.Linear(input_dim,  hidden_dim, bias=False)  # W_atom
+        self.msg_proj  = nn.Linear(input_dim,  hidden_dim, bias=False)  # W_msg
+
+        # --- Pre-norm & position-wise feed-forward network (Model space only)
+        self.pre_norm  = nn.LayerNorm(hidden_dim)
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim * 4),
+            nn.GELU(),
+            nn.Linear(hidden_dim * 4, hidden_dim),
+        )
+        self.post_norm = nn.LayerNorm(hidden_dim)
 
     def forward(self, aggregated_input, atom_features):
         """
@@ -31,9 +38,29 @@ class Update(nn.Module):
             updated_features (torch.tensor): An updated list of atom features.
         """
         # Project aggregated_input to match the feature dimension of atom_features
-        aggregated_input = self.weight_projection(aggregated_input)
-        
-        ln_transformed = self.LN(aggregated_input + self.weight(atom_features))
-        updated_features = self.layer_norm(ln_transformed)
+        # 1) Project both tensors to model space (hidden_dim)
+        f = self.atom_proj(atom_features)           # (B, N, hidden_dim)
+        m = self.msg_proj(aggregated_input)         # (B, N, hidden_dim)
 
-        return updated_features
+        # 2) Residual message add  (Matformer keeps the base features alive)
+        f = f + m                                   # residual update
+
+        # 3) Pre‑norm + feed‑forward + residual
+        f = f + self.ffn(self.pre_norm(f))
+
+        # 4) Optional final norm (Matformer uses it)
+        return self.post_norm(f)
+    
+    def to(self, device):
+        """
+        Move the Update instance to the specified device.
+        
+        Args:
+            device (torch.device): The device to move the instance to.
+        """
+        self.atom_proj = self.atom_proj.to(device)
+        self.msg_proj  = self.msg_proj.to(device)
+        self.pre_norm = self.pre_norm.to(device)
+        self.ffn = self.ffn.to(device)
+        self.post_norm = self.post_norm.to(device)
+        return self
