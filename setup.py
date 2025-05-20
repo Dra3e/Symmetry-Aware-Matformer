@@ -104,7 +104,7 @@ def setup_training(data_files):
 
 
     # Default training parameters
-    DEFAULT_NUM_EPOCHS = 1 
+    DEFAULT_NUM_EPOCHS = 150
     DEFAULT_BATCH_SIZE = 32
     DEFAULT_LEARNING_RATE = 3e-4
     DEFAULT_MARGIN = 20.0
