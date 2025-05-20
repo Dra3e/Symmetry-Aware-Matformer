@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 class Update(nn.Module):
@@ -14,6 +15,8 @@ class Update(nn.Module):
         # --- Linear projections from raw space to model space
         self.atom_proj = nn.Linear(input_dim,  hidden_dim, bias=False)  # W_atom
         self.msg_proj  = nn.Linear(input_dim,  hidden_dim, bias=False)  # W_msg
+
+        self.beta = nn.Linear(hidden_dim * 2, hidden_dim, bias=False)
 
         # --- Pre-norm & position-wise feed-forward network (Model space only)
         self.pre_norm  = nn.LayerNorm(hidden_dim)
@@ -43,7 +46,9 @@ class Update(nn.Module):
         m = self.msg_proj(aggregated_input)         # (B, N, hidden_dim)
 
         # 2) Residual message add  (Matformer keeps the base features alive)
-        f = f + m                                   # residual update
+        gate = torch.sigmoid(self.beta(torch.cat([f, m], dim=-1)))
+        f = f * gate + m * (1 - gate)
+
 
         # 3) Pre‑norm + feed‑forward + residual
         f = f + self.ffn(self.pre_norm(f))
@@ -58,6 +63,7 @@ class Update(nn.Module):
         Args:
             device (torch.device): The device to move the instance to.
         """
+        self.beta      = self.beta.to(device)
         self.atom_proj = self.atom_proj.to(device)
         self.msg_proj  = self.msg_proj.to(device)
         self.pre_norm = self.pre_norm.to(device)
