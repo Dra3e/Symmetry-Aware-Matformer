@@ -4,7 +4,7 @@ import datetime
 from models.Transformer import Transformer
 from models.components.crystal import Crystal
 from models.components.crystal_graph import CrystalGraph
-from training.loss_functions import MultiTaskLoss
+from training.loss_functions import AutomaticWeightedLoss, LossProperty, LossContrastive_Vectorized
 from training.data_getter import DataGetter
 from tqdm import tqdm
 
@@ -12,7 +12,7 @@ class SAM_TrainingEngine:
     """
     Training engine for the SAM model, which handles the training and evaluation process.
     """
-    def __init__(self, learning_rate = 3e-4):
+    def __init__(self, learning_rate=3e-4, weight_decay=1e-2):
         """
         Initialize the training engine.
 
@@ -21,14 +21,15 @@ class SAM_TrainingEngine:
         """
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = Transformer().to(self.device)
-        self.multi_loss = MultiTaskLoss(n_tasks=2).to(self.device)
+        self.multi_loss = AutomaticWeightedLoss(n_tasks=2).to(self.device)
         self.model_optimizer = torch.optim.AdamW(
-            list(self.model.parameters()) + list(self.multi_loss.parameters()),
-            lr           =learning_rate,          # typical baseline for transformers
-            betas        = (0.9, 0.98),   # same as "Noam" paper defaults
-            weight_decay = 1e-2
-        ) # Optimizer for model and loss parameters
-        # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
+            [
+                {"params": self.model.parameters(),         "weight_decay": weight_decay},
+                {"params": self.multi_loss.parameters(),    "weight_decay": 0.0},  # do NOT decay σ
+            ],
+            lr=learning_rate,
+            betas=(0.9, 0.98),
+        )
         self.scaler = torch.cuda.amp.GradScaler(enabled=(self.device.type == 'cuda'))
     
     def fit(self, property, training_path: str, validation_path: str, graph_builder: Callable[[Crystal], list], loss_type = "multi", evaluation_loss_type="mse", num_epochs = 50, batch_size = 32, margin = 5.0):
@@ -74,22 +75,24 @@ class SAM_TrainingEngine:
                 graphs, target_values = self._move_to_device(graphs, target_values)
                 with torch.cuda.amp.autocast(enabled=(self.device.type == 'cuda'), dtype=torch.bfloat16): # Mixed precision
                     # Forward pass and compute loss
-                    model_loss = self._get_loss(
-                        graph_batch=graphs, 
-                        loss_type=loss_type, 
-                        target_values=target_values, 
+                    property_loss, contrastive_loss = self._get_loss(
+                        graph_batch=graphs,
+                        loss_type=loss_type,
+                        target_values=target_values,
                         margin=margin
                     )
-                    # Backpropagation and optimization
-                    self.model_optimizer.zero_grad()
-                    if model_loss.requires_grad and model_loss.grad_fn is not None:
-                        self.scaler.scale(model_loss).backward()
-                        self.scaler.step(self.model_optimizer)
-                        self.scaler.update()
-                    else:
-                        print("⚠️ Skipping batch: No gradient flow detected.")
+                if loss_type == "multi":
+                    self._pcgrad(property_loss, contrastive_loss) # PCGrad on automatic Weighted Loss
+                    batch_loss = (property_loss + contrastive_loss).detach().item()
+                else:
 
-                epoch_loss += model_loss.item()
+                    solo = property_loss + contrastive_loss # Because in htis case one of the losses is zero
+                    self.model_optimizer.zero_grad(set_to_none=True)
+                    self.scaler.scale(solo).backward()
+                    self.scaler.step(self.model_optimizer)
+                    self.scaler.update()
+                    batch_loss = solo.detach().item()
+                epoch_loss += batch_loss
 
         
             # Evaluate validation loss
@@ -144,14 +147,20 @@ class SAM_TrainingEngine:
 
                 with torch.cuda.amp.autocast(enabled=(self.device.type == 'cuda'), dtype=torch.bfloat16):
                     # Forward pass and compute loss
-                    total = self._get_loss(
+                    property_loss, contrastive_loss = self._get_loss(
                         graph_batch=graphs, 
                         loss_type=loss_type, 
                         target_values=target_values, 
                         margin=margin
                     )
+                    if loss_type=="multi":
+                        total = self.multi_loss(property_loss, contrastive_loss)
+                    else: # Because otherwise one of the losses is zero
+                        total = property_loss + contrastive_loss
+                    
                     total_loss += total.item()
                     sample_count += 1
+                    
 
         return total_loss / sample_count if sample_count > 0 else float('inf')
     
@@ -177,7 +186,7 @@ class SAM_TrainingEngine:
             target = target_values[i]
 
             valid_prediction = predictions[valid_grah_index] #Get the prediction of the valid graph e.g. the crystal
-            loss_property = MultiTaskLoss.LossProperty(
+            loss_property = LossProperty(
                 actual_Y = target.expand_as(valid_prediction),
                 predicted_Y = valid_prediction
             )
@@ -186,11 +195,10 @@ class SAM_TrainingEngine:
             flags = torch.tensor([g.m_valid for g in graph_list], dtype=torch.float32, device=self.device)
             lat_slice   = latents[:valid_grah_index]
             flag_slice  = flags[:valid_grah_index]
-            if lat_slice.numel() == 0:                       # ← no augments this crystal
-                mean_loss_contrastive = torch.zeros(          # keep graph‑level shape
-                    1, device=self.device, requires_grad=True)
+            if lat_slice.numel() == 0:
+                mean_loss_contrastive = torch.tensor(0.0, device=self.device, requires_grad=True)
             else:
-                mean_loss_contrastive = MultiTaskLoss.LossContrastive_Vectorized(
+                mean_loss_contrastive = LossContrastive_Vectorized(
                     latent_ref = latents[valid_grah_index],
                     latents    = lat_slice,
                     flags      = flag_slice,
@@ -205,15 +213,74 @@ class SAM_TrainingEngine:
         loss_contrastive_batch = torch.stack(batch_contrastive_losses).mean()
 
         if loss_type == "multi":
-            multi_loss = self.multi_loss(loss_property_batch, loss_contrastive_batch)
-            return multi_loss
+            # return *both* raw task losses; AWL will be applied later
+            return loss_property_batch, loss_contrastive_batch
 
         elif loss_type == "mse":
-            return loss_property_batch
+            return loss_property_batch, 0
+
         elif loss_type == "contrastive":
-            return loss_contrastive_batch
+            return 0, loss_contrastive_batch
+
         else:
-            raise ValueError(f"Unknown loss type: {self.loss_type}")
+            raise ValueError(f"Unknown loss type: {loss_type}")
+    
+    def _pcgrad(self, property_loss, contrastive_loss):
+        """
+        Apply *Projected Conflicting Gradients* (PCGrad) to the pair of
+        task-specific losses **after** scaling them with the current
+        Automatic-Weighted-Loss (AWL) weights, then perform an optimiser step.
+
+        Steps
+        -----
+        1. Compute the AWL per-task weights   w_i = 0.5 / σ_i².
+        2. Back-prop each weighted loss separately → collect its gradient
+        vector  g_prop  and  g_con.
+        3. **Un-scale** gradients produced under AMP so their dot product
+        reflects true magnitudes.
+        4. If the tasks disagree (〈g_prop, g_con〉 < 0) project g_con onto the
+        normal plane of g_prop -> g_con := g_con − proj_{g_prop}(g_con).
+        5. Add the AWL regulariser  Σ log(1+σ_i²)  to the backward graph
+        (updates σ-parameters).
+        6. Optimiser / GradScaler step.
+
+        Notes
+        -----
+        • Called only when `loss_type == "multi"`.  
+        • Neither return value nor public signature of the engine changes.
+        """
+        sigma_sq      = torch.exp(self.multi_loss.log_sigma) ** 2       # σ_i² ≥ 0
+        property_loss_weight, contrastive_loss_weight = 0.5 / sigma_sq  # ½·L/σ²
+        
+        for param in self.model.parameters(): # clear any stale property-loss gradients
+            param.grad = None
+        self.scaler.scale(property_loss_weight * property_loss).backward(retain_graph=True)
+        property_loss_gradients = [self._safe_clone(param.grad, param) for param in self.model.parameters()] # property-loss gradient
+        
+
+        for param in self.model.parameters(): # clear any stale contrastive-loss gradients
+            param.grad = None
+        self.scaler.scale(contrastive_loss_weight * contrastive_loss).backward(retain_graph=True)
+        contrastive_loss_gradients = [self._safe_clone(param.grad, param) for param in self.model.parameters()] # contrastive-loss gradient
+        
+        self.scaler.unscale_(self.model_optimizer) # Un-scale grads so dot product is numerically correct
+
+        for param, property_gradient, contrastive_gradient in zip(self.model.parameters(), property_loss_gradients, contrastive_loss_gradients): # project if gradients conflict
+            if (property_gradient * contrastive_gradient).sum() < 0:                               # ⟨g_p, g_c⟩ < 0
+                projection_coef = (contrastive_gradient * property_gradient).sum() / property_gradient.norm()**2
+                contrastive_gradient = contrastive_gradient - projection_coef * property_gradient                   # remove opp. component
+            param.grad = property_gradient + contrastive_gradient                                  # merge gradients
+
+        self.scaler.scale(torch.log1p(sigma_sq).sum()).backward() # AWL regulariser backward  (updates σ parameters)
+
+        self.scaler.step(self.model_optimizer)
+        self.scaler.update()
+    
+    def _safe_clone(self, gradient, parameter: torch.nn.Parameter):
+        """Return a detached clone of `g`, or a zero tensor if g is None."""
+        if gradient is None:
+            return torch.zeros_like(parameter, memory_format=torch.preserve_format)
+        return gradient.detach().clone()
 
     def _move_to_device(self, graphs: List[List[CrystalGraph]], targets: torch.Tensor):
         """
