@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import re
 from pathlib import Path
 import pickle
 from typing import Callable, Sequence
@@ -7,6 +8,11 @@ import torch
 from torch.utils.data import Dataset, DataLoader, default_collate
 from pymatgen.core import Structure
 from models.components.crystal import Crystal
+
+_TENSOR_RE = re.compile(
+    r"tensor\(\s*([+-]?\d+(\.\d+)?([eE][+-]?\d+)?)"      # numeric part
+    r"(?:\s*,.*)?\)"                                     # ignore dtype / device
+)
 
 class DataGetter(Dataset):
     """
@@ -67,9 +73,15 @@ class DataGetter(Dataset):
         crystals, props = [], []
         for entry in raw:
             value = entry.get(property_name) # Get the target property
-            if value is None:
+            if value is None or (value != value) or not isinstance(value, (float, int, torch.Tensor)):
                 print(f"⚠️  {property_name} missing for id={entry.get('id', 'NA')}")
                 continue
+            elif isinstance(value, torch.Tensor):
+                value = value.item()
+            elif isinstance(value, str):
+                s = value.strip().lower()
+                if m := _TENSOR_RE.fullmatch(s):
+                    value = float(m.group(1))
 
             atoms = entry["atoms"] # Extract atomic data
             try:
