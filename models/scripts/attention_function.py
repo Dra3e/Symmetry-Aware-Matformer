@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 
@@ -105,12 +106,15 @@ class AttentionFunction(nn.Module):
         value_C = torch.cat((value_i, value_j, edge_trans), dim=-1) 
 
         # Raw attention score (element-wise product)
-        dimension_of_key = key_C.size(-1)
-        alpha_raw = query_C * key_C / dimension_of_key # Hadamard( Query, Key ) / 3*hidden_dim
+        dimension_of_key = math.sqrt(3 * (self.hidden_dim // self.num_heads))
+        alpha_raw = query_C * key_C / dimension_of_key                             # (H, N, 3D/H)
 
-        alpha = alpha_raw.permute(1, 0, 2).reshape(E, -1)           # (E, 3*hidden_dim)
-        alpha = torch.sigmoid(self.layer_norm(alpha))               # Apply LayerNorm and sigmoid (E, 3*hidden_dim)
-        alpha = alpha.view(E, self.num_heads, feature_dim_per_head).permute(1, 0, 2)  # (head_size, E, 3*hidden_dim/head_size)
+        # LayerNorm + sigmoid
+        # layerNorm always normalises the last dimension, so permute(1,0,2) swaps H and N dimension.
+        # In order to apply layerNorm to all heads without looping, reshape(N,-1) collects all heads into one tensor
+        alpha = alpha_raw.permute(1, 0, 2).reshape(E, -1)           # (N, 3D)
+        alpha = torch.sigmoid(self.layer_norm(alpha))               # (N, 3D)
+        alpha = alpha.view(E, self.num_heads, feature_dim_per_head).permute(1, 0, 2)  # (H, N, 3D/H)
 
         # Symmetry projection: (N,) → (N, 1) → (H, N, D/H)
         m_sym = m_sym.unsqueeze(-1)  # (N, 1)

@@ -20,6 +20,7 @@ class GlobalPooling(nn.Module):
         Returns:
             pooled_features: A scalar with the sum of the atoms of the crystal.
         """
-        pooled_features = torch.sum(updated_features, dim=0) # Use torch.sum to sum the output of updated crystals along the first dimension (rows)
+        # Use torch.mean to sum the output of updated crystals along the first dimension (rows)
+        pooled_features = torch.mean(updated_features, dim=0)
 
         return pooled_features

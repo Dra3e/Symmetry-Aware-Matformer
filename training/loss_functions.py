@@ -1,7 +1,11 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
-class MultiTaskLoss(torch.nn.Module):
+# ------------------------------------------------------------------
+# 1. Automatic Weighted Loss (AWL)  – always ≥ 0, learns σ_i
+# ------------------------------------------------------------------
+class AutomaticWeightedLoss(nn.Module):
     """
     Multi-task loss function based on task uncertainty.
     Each task is weighted by a learnable log variance (log σ²).
@@ -12,101 +16,47 @@ class MultiTaskLoss(torch.nn.Module):
         log_vars (torch.nn.Parameter): Learnable parameters representing the log variance for each task.
     """
     def __init__(self, n_tasks: int = 2):
-        """
-        Initializes the MultiTaskLoss module.
-
-        Args:
-            n_tasks (int): Number of tasks to balance. Default is 2.
-        """
         super().__init__()
-        self.log_vars = torch.nn.Parameter(torch.zeros(n_tasks, requires_grad=True)) # Initialize log σ² for each task to 0 (σ = 1), giving equal influence to all tasks initially.
+        # log σ_i   (init σ_i = 1  ⇒  log σ_i = 0)
+        self.log_sigma = nn.Parameter(torch.zeros(n_tasks))  # Initialize log σ² for each task to 0 (σ = 1), giving equal influence to all tasks initially.
 
-    def forward(self, *task_losses: torch.Tensor) -> torch.Tensor:
-        """
-        Computes the total loss by combining individual task losses with learnable weights.
+    def forward(self, *task_losses):
+        assert len(task_losses) == len(self.log_sigma)
+        loss_sum = 0.0
+        for i, L in enumerate(task_losses):
+            sigma2 = torch.exp(self.log_sigma[i]) ** 2          # σ_i² ≥ 0
+            loss_sum += 0.5 * L / sigma2 + torch.log1p(sigma2)  # ½·L/σ² + log(1+σ²)
+        return loss_sum
 
-        Args:
-            *task_losses (torch.Tensor): Losses for each task.
 
-        Returns:
-            torch.Tensor: The combined loss.
-        """
-        losses = torch.stack(task_losses)          # [T]
-        
-        # Ensure no NaN or Inf values in task losses
-        assert not torch.isnan(losses).any(), "NaN detected in task losses!"
-        assert not torch.isinf(losses).any(), "Inf detected in task losses!"
+# ------------------------------------------------------------------
+# 2. Property MSE (unchanged)
+# ------------------------------------------------------------------
+def LossProperty(actual_Y, predicted_Y):
+    """
+    Computes the Mean Squared Error (MSE) loss between actual and predicted values.
 
-        # Clamp log_vars to prevent extreme values
-        clamped_vars = torch.clamp(self.log_vars, min=-20, max=20)
-        
-        precision = torch.exp(-clamped_vars)     # e^{-s_i}
+    Args:
+        actual_Y (torch.Tensor): Ground truth values.
+        predicted_Y (torch.Tensor): Predicted values.
 
-        # Ensure no NaN or Inf values in precision
-        assert not torch.isnan(precision).any(), "NaN detected in precision!"
-        assert not torch.isinf(precision).any(), "Inf detected in precision!"
-        
-        total = 0.5 * torch.sum(precision * losses + clamped_vars)
+    Returns:
+        torch.Tensor: The MSE loss.
+    """
+    if actual_Y.shape == predicted_Y.shape:
+        assert not torch.isnan(actual_Y).any()
+        assert not torch.isnan(predicted_Y).any()
+        return torch.mean((actual_Y - predicted_Y) ** 2)
+    else:
+        raise ValueError("Inputs are not the same size!")
 
-        # Ensure no NaN or Inf values in the total loss
-        assert not torch.isnan(total).any(), "NaN detected in total loss!"
-        assert not torch.isinf(total).any(), "Inf detected in total loss!"
 
-        return total
-    
-    @staticmethod
-    def LossProperty(actual_Y, predicted_Y):
-        """
-        Computes the Mean Squared Error (MSE) loss between actual and predicted values.
-
-        Args:
-            actual_Y (torch.Tensor): Ground truth values.
-            predicted_Y (torch.Tensor): Predicted values.
-
-        Returns:
-            torch.Tensor: The MSE loss.
-        """
-        if actual_Y.shape == predicted_Y.shape:
-            assert not torch.isnan(actual_Y).any()
-            assert not torch.isnan(predicted_Y).any()
-            return torch.mean((actual_Y - predicted_Y) ** 2)
-        else:
-            raise ValueError("Inputs are not the same size!")
-
-    @staticmethod
-    def LossContrastive(actual_F, predicted_F, flag, threshold):
-        """
-        Computes the contrastive loss using Euclidean distance.
-
-        Args:
-            actual_F (torch.Tensor): Ground truth feature vectors.
-            predicted_F (torch.Tensor): Predicted feature vectors.
-            flag (torch.Tensor): Binary tensor indicating positive (1) or negative (0) pairs.
-            threshold (float): Margin for negative pairs.
-
-        Returns:
-            torch.Tensor: The contrastive loss.
-        """
-        assert actual_F.shape == predicted_F.shape, "Inputs are not the same size!"
-
-        distances = torch.norm(actual_F - predicted_F, dim=0) # Compute Euclidean distances between actual and predicted feature vectors
-
-        # Ensure no NaN or Inf values in distances
-        assert not torch.isnan(distances).any(), "NaN detected in distances!"
-        assert not torch.isinf(distances).any(), "Inf detected in distances!"
-
-        # Compute positive and negative losses
-        positive_loss = flag * (distances ** 2)
-        negative_loss = (1 - flag) * torch.clamp(threshold - distances, min=0.0) ** 2
-
-        loss = positive_loss + negative_loss 
-
-        return loss.mean()
-    
-    @staticmethod
-    def LossContrastive_Vectorized(latent_ref, latents, flags, margin):
-        """
-        Computes the contrastive loss using Euclidean distance in a vectorized manner.
+# ------------------------------------------------------------------
+# 3. Contrastive loss with safe ε-floor + soft margin
+# ------------------------------------------------------------------
+def LossContrastive_Vectorized(latent_ref, latents, flags, margin: float, tau: float = 0.1):
+    """
+    Computes the contrastive loss using Euclidean distance in a vectorized manner.
 
         Args:
             latent_ref (torch.Tensor): Reference latent vector.
@@ -116,18 +66,20 @@ class MultiTaskLoss(torch.nn.Module):
         
         Returns:
             torch.Tensor: The contrastive loss.
-        """
-        if latents.numel() == 0: # Nothing to compare with
-            return torch.zeros(1, device=latent_ref.device, requires_grad=True) # Return 'zero' so the other task still back‑propagates
+    """
+    if latents.numel() == 0:                       # edge case: batch had only the ref graph
+        return latent_ref.new_tensor(1e-6)
 
-        pos = latents[flags == 1]
-        neg = latents[flags == 0]
+    pos = latents[flags == 1]
+    neg = latents[flags == 0]
 
-        dist_pos = torch.norm(pos - latent_ref, dim=1) if pos.numel() else None
-        dist_neg = torch.norm(neg - latent_ref, dim=1) if neg.numel() else None
+    loss_pos = 0.0
+    if pos.numel():
+        loss_pos = (pos - latent_ref).pow(2).sum(dim=1).mean()
 
-        loss_pos = dist_pos.pow(2).mean() if dist_pos is not None else 0.0
-        loss_neg = torch.clamp(margin - dist_neg, min=0).pow(2).mean() \
-                if dist_neg is not None else 0.0
+    loss_neg = 0.0
+    if neg.numel():
+        d = (neg - latent_ref).pow(2).sum(dim=1).sqrt()       # Euclidean
+        loss_neg = F.softplus((margin - d) / tau).mean() # > 0
 
-        return (loss_pos + loss_neg)        # Always finite; gradients flow
+    return loss_pos + loss_neg + 1e-6    # ε-floor keeps σ_con well behaved
