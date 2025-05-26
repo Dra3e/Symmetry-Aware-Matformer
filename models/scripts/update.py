@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class Update(nn.Module):
     """ Script class for the update step of the transformer model. """
-    def __init__(self, input_dim, hidden_dim):
+    def __init__(self, input_dim, hidden_dim, use_beta: bool = True):
         """
         Initialize the Update class.
         
@@ -16,7 +17,13 @@ class Update(nn.Module):
         self.atom_proj = nn.Linear(input_dim,  hidden_dim, bias=False)  # W_atom
         self.msg_proj  = nn.Linear(input_dim,  hidden_dim, bias=False)  # W_msg
 
-        self.beta = nn.Linear(hidden_dim * 2, hidden_dim, bias=False)
+        # --- β-gate (scalar per node)
+        self.beta_norm = nn.LayerNorm(hidden_dim)
+        self.use_beta  = use_beta
+        if self.use_beta:
+            self.lin_beta = nn.Linear(hidden_dim * 3, 1, bias=False)    # W_β
+        else:
+            self.register_parameter("lin_beta", None)
 
         # --- Pre-norm & position-wise feed-forward network (Model space only)
         self.pre_norm  = nn.LayerNorm(hidden_dim)
@@ -44,10 +51,15 @@ class Update(nn.Module):
         # 1) Project both tensors to model space (hidden_dim)
         f = self.atom_proj(atom_features)           # (B, N, hidden_dim)
         m = self.msg_proj(aggregated_input)         # (B, N, hidden_dim)
+        m = F.silu(self.beta_norm(m))               # LayerNorm + SiLU shrinks the variance of the tensor, so lin_beta never sees huge values.
 
-        # 2) Residual message add  (Matformer keeps the base features alive)
-        gate = torch.sigmoid(self.beta(torch.cat([f, m], dim=-1)))
-        f = f * gate + m * (1 - gate)
+        # 2) beta-gated residual merge   out <- beta * f + (1 - beta) * m
+        if self.use_beta and self.lin_beta is not None:
+            gate_in = torch.cat([m, f, m - f], dim=-1)   # (B, N, 3·H)
+            beta    = torch.sigmoid(self.lin_beta(gate_in))  # (B, N, 1)
+            f = beta * f + (1.0 - beta) * m
+        else:
+            f = f + m
 
 
         # 3) Pre‑norm + feed‑forward + residual
@@ -63,7 +75,8 @@ class Update(nn.Module):
         Args:
             device (torch.device): The device to move the instance to.
         """
-        self.beta      = self.beta.to(device)
+        self.beta_norm = self.beta_norm.to(device)
+        self.lin_beta = self.lin_beta.to(device)
         self.atom_proj = self.atom_proj.to(device)
         self.msg_proj  = self.msg_proj.to(device)
         self.pre_norm = self.pre_norm.to(device)

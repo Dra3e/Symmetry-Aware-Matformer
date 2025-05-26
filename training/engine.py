@@ -1,3 +1,5 @@
+from pathlib import Path
+import re
 from typing import Callable, List
 import torch
 import datetime
@@ -94,7 +96,7 @@ class SAM_TrainingEngine:
                     batch_loss = solo.detach().item()
                 epoch_loss += batch_loss
 
-        
+
             # Evaluate validation loss
             eval_loss = self.run(
                 dataloader=eval_dataloader,
@@ -211,68 +213,67 @@ class SAM_TrainingEngine:
         # Aggregate losses
         loss_property_batch = torch.stack(batch_property_losses).mean()
         loss_contrastive_batch = torch.stack(batch_contrastive_losses).mean()
-
+        
+        # Handle different loss types
+        zero = torch.tensor(0.0, device=self.device)
         if loss_type == "multi":
             # return *both* raw task losses; AWL will be applied later
             return loss_property_batch, loss_contrastive_batch
-
         elif loss_type == "mse":
-            return loss_property_batch, 0
-
+            return loss_property_batch, zero
         elif loss_type == "contrastive":
-            return 0, loss_contrastive_batch
-
+            return zero, loss_contrastive_batch
         else:
             raise ValueError(f"Unknown loss type: {loss_type}")
     
     def _pcgrad(self, property_loss, contrastive_loss):
         """
-        Apply *Projected Conflicting Gradients* (PCGrad) to the pair of
-        task-specific losses **after** scaling them with the current
-        Automatic-Weighted-Loss (AWL) weights, then perform an optimiser step.
-
-        Steps
-        -----
-        1. Compute the AWL per-task weights   w_i = 0.5 / σ_i².
-        2. Back-prop each weighted loss separately → collect its gradient
-        vector  g_prop  and  g_con.
-        3. **Un-scale** gradients produced under AMP so their dot product
-        reflects true magnitudes.
-        4. If the tasks disagree (〈g_prop, g_con〉 < 0) project g_con onto the
-        normal plane of g_prop -> g_con := g_con − proj_{g_prop}(g_con).
-        5. Add the AWL regulariser  Σ log(1+σ_i²)  to the backward graph
-        (updates σ-parameters).
-        6. Optimiser / GradScaler step.
-
-        Notes
-        -----
-        • Called only when `loss_type == "multi"`.  
-        • Neither return value nor public signature of the engine changes.
+        PCGrad + AutomaticWeightedLoss (AWL) with AMP
+        Fixed: only one unscale_() call, no glued gradients.
         """
-        sigma_sq      = torch.exp(self.multi_loss.log_sigma) ** 2       # σ_i² ≥ 0
-        property_loss_weight, contrastive_loss_weight = 0.5 / sigma_sq  # ½·L/σ²
-        
-        for param in self.model.parameters(): # clear any stale property-loss gradients
-            param.grad = None
-        self.scaler.scale(property_loss_weight * property_loss).backward(retain_graph=True)
-        property_loss_gradients = [self._safe_clone(param.grad, param) for param in self.model.parameters()] # property-loss gradient
-        
+        # ------------------------------------------------------------------ 1) AWL weights
+        sigma_sq = torch.exp(self.multi_loss.log_sigma).pow(2)        # σ_i² ≥ 0
+        w_prop, w_con = (0.5 / sigma_sq).unbind()                     # two scalars
 
-        for param in self.model.parameters(): # clear any stale contrastive-loss gradients
-            param.grad = None
-        self.scaler.scale(contrastive_loss_weight * contrastive_loss).backward(retain_graph=True)
-        contrastive_loss_gradients = [self._safe_clone(param.grad, param) for param in self.model.parameters()] # contrastive-loss gradient
-        
-        self.scaler.unscale_(self.model_optimizer) # Un-scale grads so dot product is numerically correct
+        # ------------------------------------------------------------------ 2) set-up
+        self.model_optimizer.zero_grad(set_to_none=True)
+        scale = self.scaler.get_scale()                               # same for both tasks
 
-        for param, property_gradient, contrastive_gradient in zip(self.model.parameters(), property_loss_gradients, contrastive_loss_gradients): # project if gradients conflict
-            if (property_gradient * contrastive_gradient).sum() < 0:                               # ⟨g_p, g_c⟩ < 0
-                projection_coef = (contrastive_gradient * property_gradient).sum() / property_gradient.norm()**2
-                contrastive_gradient = contrastive_gradient - projection_coef * property_gradient                   # remove opp. component
-            param.grad = property_gradient + contrastive_gradient                                  # merge gradients
+        # ------------------------------------------------------------------ 3) property-loss backward (scaled)
+        scaled_prop = self.scaler.scale(w_prop * property_loss)
+        scaled_prop.backward(retain_graph=True)
 
-        self.scaler.scale(torch.log1p(sigma_sq).sum()).backward() # AWL regulariser backward  (updates σ parameters)
+        # cloned *scaled* gradients
+        g_prop_scaled = [self._safe_clone(p.grad, p) for p in self.model.parameters()]
 
+        # ------------------------------------------------------------------ 4) contrastive-loss backward (scaled)
+        for p in self.model.parameters():                             # clear before 2nd pass
+            p.grad = None
+        scaled_con = self.scaler.scale(w_con * contrastive_loss)
+        scaled_con.backward(retain_graph=True)
+
+        # ------------------------------------------------------------------ 5) unscale ONCE (affects current .grad tensors)
+        self.scaler.unscale_(self.model_optimizer)
+
+        # un-scaled contrastive grads (already in .grad after unscale_)
+        g_con = [self._safe_clone(p.grad, p) for p in self.model.parameters()]
+
+        # un-scaled property grads = scaled / scale
+        inv_scale = 1.0 / scale
+        g_prop = [gp * inv_scale for gp in g_prop_scaled]
+
+        # ------------------------------------------------------------------ 6) PCGrad projection & merge  (in-place on un-scaled grads)
+        for p, gp, gc in zip(self.model.parameters(), g_prop, g_con):
+            dot = (gp * gc).sum()
+            if dot < 0:                                               # conflicting
+                gc = gc - dot / gp.norm().pow(2) * gp
+            p.grad = gp + gc                                          # merged gradient
+
+        # ------------------------------------------------------------------ 7) AWL regulariser   log(1+σ²)
+        # Only σ-parameters need grads here, so we add it *without* scaling.
+        torch.log1p(sigma_sq).sum().backward()
+
+        # ------------------------------------------------------------------ 8) optimiser / scaler step
         self.scaler.step(self.model_optimizer)
         self.scaler.update()
     
