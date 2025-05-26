@@ -10,6 +10,41 @@ if __name__ == "__main__":             # ← the “entry‑point guard”
     import multiprocessing as mp       # Windows needs this extra line
     mp.freeze_support()                # safe even when you’re *not* freezing an exe
                              # everything that kicks off training
+
+    jarvis_props = [
+        "formation_energy_peratom",
+        "optb88vdw_bandgap",
+        "bulk_modulus_kv",
+        "shear_modulus_gv",
+        "mbj_bandgap",
+        "slme",
+        "magmom_oszicar",
+        "spillage",
+        "kpoint_length_unit",
+        "encut",
+        "optb88vdw_total_energy",
+        "epsx",
+        "epsy",
+        "epsz",
+        "mepsx",
+        "mepsy",
+        "mepsz",
+        "max_ir_mode",
+        "min_ir_mode",
+        "n-Seebeck",
+        "p-Seebeck",
+        "n-powerfact",
+        "p-powerfact",
+        "ncond",
+        "pcond",
+        "nkappa",
+        "pkappa",
+        "ehull",
+        "exfoliation_energy",
+        "dfpt_piezo_max_dielectric",
+        "dfpt_piezo_max_eij",
+        "dfpt_piezo_max_dij",
+    ]
     
     hull_energy = "e_hull"
     band_gap = "gap pbe"
@@ -18,8 +53,11 @@ if __name__ == "__main__":             # ← the “entry‑point guard”
     bulk_modulus = "bulk modulus"
     shear_modulus = "shear modulus"
     formation_energy = "e_form"
-    training_data_file = os.path.join(DATA_PATH, "bulk_megnet_train.pkl")
-    validation_data_file = os.path.join(DATA_PATH, "bulk_megnet_val.pkl")
+
+    training_data_file = "jarvis_train"
+    validation_data_file = "jarvis_val"
+    # training_data_file = os.path.join(DATA_PATH, "bulk_megnet_train.pkl")
+    # validation_data_file = os.path.join(DATA_PATH, "bulk_megnet_val.pkl")
 
     learning_rate = 1e-4
     num_epochs = 5
@@ -52,77 +90,13 @@ if __name__ == "__main__":             # ← the “entry‑point guard”
         batch_size=batch_size,
         margin=margin
     )
-    # band_gap_loss = SAM_TrainingEngine(
-    #     learning_rate=learning_rate,
-    # ).fit(
-    #     property=band_gap,
-    #     training_path=os.path.join(DATA_PATH, training_data_file),
-    #     validation_path=os.path.join(DATA_PATH, validation_data_file),
-    #     graph_builder=acg.build_graphs,
-    #     loss_type="multi",
-    #     num_epochs=num_epochs,
-    #     batch_size=batch_size,
-    #     margin=margin
-    # )
-    # magnetic_moment_loss = SAM_TrainingEngine(
-    #     learning_rate=learning_rate,
-    # ).fit(
-    #     property=magnetic_moment,
-    #     training_path=os.path.join(DATA_PATH, training_data_file),
-    #     validation_path=os.path.join(DATA_PATH, validation_data_file),
-    #     graph_builder=acg.build_graphs,
-    #     loss_type="multi",
-    #     num_epochs=num_epochs,
-    #     batch_size=batch_size,
-    #     margin=margin
-    # )
-    # elastic_anisotropy_loss = SAM_TrainingEngine(
-    #     learning_rate=learning_rate,
-    # ).fit(
-    #     property=elastic_anisotropy,
-    #     training_path=os.path.join(DATA_PATH, training_data_file),
-    #     validation_path=os.path.join(DATA_PATH, validation_data_file),
-    #     graph_builder=acg.build_graphs,
-    #     loss_type="multi",
-    #     num_epochs=num_epochs,
-    #     batch_size=batch_size,
-    #     margin=margin
-    # )
-    # bulk_modulus_loss = SAM_TrainingEngine(
-    #     learning_rate=learning_rate,
-    # ).fit(
-    #     property=bulk_modulus,
-    #     training_path=os.path.join(DATA_PATH, training_data_file),
-    #     validation_path=os.path.join(DATA_PATH, validation_data_file),
-    #     graph_builder=acg.build_graphs,
-    #     loss_type="multi",
-    #     num_epochs=num_epochs,
-    #     batch_size=batch_size,
-    #     margin=margin
-    # )
-    # shear_modulus_loss = SAM_TrainingEngine(
-    #     learning_rate=learning_rate,
-    # ).fit(
-    #     property=shear_modulus,
-    #     training_path=os.path.join(DATA_PATH, training_data_file),
-    #     validation_path=os.path.join(DATA_PATH, validation_data_file),
-    #     graph_builder=acg.build_graphs,
-    #     loss_type="multi",
-    #     num_epochs=num_epochs,
-    #     batch_size=batch_size,
-    #     margin=margin
-    # )
+
     
     print()
     print("Training Results:")
     print("===================================")
     print("Hull Energy Loss: ", hull_energy_loss)
     print("Formation Energy Loss: ", formation_energy_loss)
-    # print("Band Gap Loss: ", band_gap_loss)
-    # print("Magnetic Moment Loss: ", magnetic_moment_loss)
-    # print("Elastic Anisotropy Loss: ", elastic_anisotropy_loss)
-    # print("Bulk Modulus Loss: ", bulk_modulus_loss)
-    # print("Shear Modulus Loss: ", shear_modulus_loss)
 
     study()   
 

@@ -1,13 +1,20 @@
 from __future__ import annotations
 import os
-import re
+import json
 from pathlib import Path
 import pickle
-from typing import Callable, Sequence
+import re
+import tempfile
+from typing import Callable, Literal, Sequence
 import torch
 from torch.utils.data import Dataset, DataLoader, default_collate
 from pymatgen.core import Structure
 from models.components.crystal import Crystal
+from jarvis.db.figshare import data as jdata          # ← JARVIS helper
+from pymatgen.core import Structure
+from typing import Callable, Literal
+
+from models.components.crystal import Crystal        # same as in data_getter.py
 
 _TENSOR_RE = re.compile(
     r"tensor\(\s*([+-]?\d+(\.\d+)?([eE][+-]?\d+)?)"      # numeric part
@@ -163,3 +170,60 @@ class DataGetter(Dataset):
             DataLoader: The DataLoader for this dataset.
         """
         return self.loader
+
+_SPLIT_DIR = Path("data/jarvis_splits")               # folder with the JSON lists
+_ID_FILES  = {
+    "train": _SPLIT_DIR / "dft_3d_train_ids.json",
+    "val":   _SPLIT_DIR / "dft_3d_val_ids.json",
+    "test":  _SPLIT_DIR / "dft_3d_test_ids.json",
+}
+class JarvisDataGetter(DataGetter):
+    """
+    Drop-in replacement for DataGetter that streams the JARVIS-DFT 76 k dataset
+    and keeps only those J-IDs listed in the local split files above.
+    """
+
+    def __init__(self,
+                 *,
+                 property_name: str,                     # e.g. "formation_energy_peratom"
+                 graph_builder: Callable,                # same as in DataGetter
+                 dataset: str = "dft_3d",
+                 split: Literal["train", "val", "test", "all"] = "train",
+                 batch_size: int = 32,
+                 shuffle: bool | None = None,
+                 collate_fn=None):
+
+        # 1) download / cache the raw 76 k JSON once
+        raw_all = jdata(dataset)                         # cached after first run
+
+        # 2) keep only the requested slice
+        if split == "all":
+            raw = raw_all
+        else:
+            id_file = _ID_FILES[split]
+            if not id_file.is_file():
+                raise FileNotFoundError(f"Missing split file: {id_file}")
+            keep = set(json.load(id_file.open()))
+            raw  = [rec for rec in raw_all if rec["jid"] in keep]
+
+        if not raw:
+            raise RuntimeError(f"No records for {dataset=} {split=}")
+
+        # 3) reuse the original DataGetter via a temp .pkl
+        fd, tmp = tempfile.mkstemp(suffix=".pkl"); os.close(fd)
+        with open(tmp, "wb") as f:
+            pickle.dump(raw, f)
+        self._tmp = Path(tmp)
+
+        super().__init__(
+            path          = self._tmp,
+            property_name = property_name,
+            graph_builder = graph_builder,
+            batch_size    = batch_size,
+            shuffle       = shuffle if shuffle is not None else (split == "train"),
+            collate_fn    = collate_fn,
+        )
+
+    def __del__(self):
+        try: self._tmp.unlink(missing_ok=True)
+        except Exception: pass

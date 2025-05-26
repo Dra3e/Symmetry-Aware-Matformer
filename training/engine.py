@@ -7,8 +7,45 @@ from models.Transformer import Transformer
 from models.components.crystal import Crystal
 from models.components.crystal_graph import CrystalGraph
 from training.loss_functions import AutomaticWeightedLoss, LossProperty, LossContrastive_Vectorized
-from training.data_getter import DataGetter
+from training.data_getter import DataGetter, JarvisDataGetter
 from tqdm import tqdm
+
+_JARVIS_RE = re.compile(r'^jarvis(?:_(?P<split>\w+))?$', re.I)
+
+def _make_datagetter(source: str | Path,
+                     *,
+                     prop: str,
+                     graph_builder,
+                     batch_size: int,
+                     is_train: bool,
+                     collate_fn=None):
+    """
+    Decide at run-time whether `source` is
+      • a real .pkl file  → DataGetter
+      • a “jarvis_*” key → JarvisDataGetter
+    and return it
+    """
+    # ---------- JARVIS?
+    if isinstance(source, str) and (m := _JARVIS_RE.match(source)):
+        split = m['split'] or ('train' if is_train else 'val')
+        return JarvisDataGetter(
+            property_name = prop,
+            graph_builder = graph_builder,
+            split         = split,                    # train / val / test / all
+            batch_size    = batch_size,
+            shuffle       = (split == 'train'),
+            collate_fn    = collate_fn,
+        )
+
+    # ---------- local pickle
+    return DataGetter(
+        path          = Path(source),
+        property_name = prop,
+        graph_builder = graph_builder,
+        batch_size    = batch_size,
+        shuffle       = is_train,
+        collate_fn    = collate_fn,
+    )
 
 class SAM_TrainingEngine:
     """
@@ -49,21 +86,23 @@ class SAM_TrainingEngine:
             margin (float): margin for contrastive loss.
         """
         # Create training and validation datasets
-        training_data_getter = DataGetter(
-                path           = training_path,
-                property_name  = property,
+        
+        training_data_getter = _make_datagetter(
+                source         = training_path,
+                prop           = property,
                 graph_builder  = graph_builder,
                 batch_size     = batch_size,
-                shuffle        = True,         # shuffle only on the training split
+                is_train       = True,         # training split
         )
         training_dataloader = training_data_getter.loader
-        eval_dataloader = DataGetter(
-                path           = validation_path,
-                property_name  = property,
+        eval_data_getter = _make_datagetter(
+                source         = validation_path,
+                prop           = property,
                 graph_builder  = graph_builder,
                 batch_size     = batch_size,
-                shuffle        = False,        # keep order for evaluation
-        ).loader
+                is_train        = False,        # keep order for evaluation
+        )
+        eval_dataloader = eval_data_getter.loader
         best_eval_loss = float('inf')           # Track the best validation loss
         best_model_state = None                 # Store the best model state
 
@@ -83,6 +122,7 @@ class SAM_TrainingEngine:
                         target_values=target_values,
                         margin=margin
                     )
+                print(f"Property Loss: {property_loss.item():.4f}, Contrastive Loss: {contrastive_loss.item():.4f}")
                 if loss_type == "multi":
                     self._pcgrad(property_loss, contrastive_loss) # PCGrad on automatic Weighted Loss
                     batch_loss = (property_loss + contrastive_loss).detach().item()
@@ -96,7 +136,7 @@ class SAM_TrainingEngine:
                     batch_loss = solo.detach().item()
                 epoch_loss += batch_loss
 
-
+        
             # Evaluate validation loss
             eval_loss = self.run(
                 dataloader=eval_dataloader,
