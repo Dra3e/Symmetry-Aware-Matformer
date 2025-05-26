@@ -6,7 +6,14 @@ from mendeleev import element
 # ===== Graph Embedder ======
 
 class GraphEmbedder(nn.Module):
-    """ Script class for embedding crystal graphs into node and edge feature representations."""
+    """
+    Script class for embedding crystal graphs into node and edge feature representations.
+    
+    Attributes:
+        atom_embedding (CGCNN): CGCNN instance for atomic feature transformation.
+        edge_transform (EdgeTransformation): Edge transformation module for distance expansion and linear transformation.
+        hidden_dim (int): Dimension of the output node and edge features.
+    """
     def __init__(self, atom_feature_dim=92, hidden_dim=120, num_rbf_kernels=50, min_rbf_dist=0.0, max_rbf_dist=8.0):
         """
         Initializes the GraphEmbedder.
@@ -33,8 +40,8 @@ class GraphEmbedder(nn.Module):
             graph (models.components.CrystalGraph): CrystalGraph instance containing nodes and edges.
 
         Returns:
-            atom_features (torch.Tensor): [N, hidden_dim] Node feature matrix.
-            edge_features (torch.Tensor): [num_edges, 6, hidden_dim] Edge feature matrix.
+            atom_features (torch.Tensor): Node feature matrix. (N, hidden_dim)
+            edge_features (torch.Tensor): Edge feature matrix. (num_edges, 6, hidden_dim)
         """
         if isinstance(graph.edges, torch.Tensor):
             edges = graph.edges
@@ -44,16 +51,15 @@ class GraphEmbedder(nn.Module):
         atom_features = self.atom_embedding.forward(graph.nodes)
         transformed_distances = self.edge_transform.forward(edges)
 
-        from_indices = edges[:, 0].long() # Extract indices of from nodes
-        to_indices = edges[:, 1].long() # Extract indices of to nodes
-        from_node_emb = atom_features[from_indices] # Get embedded from nodes
-        to_node_emb = atom_features[to_indices] # Get embedded to nodes
+        from_indices = edges[:, 0].long() # Extract indices of 'from' nodes
+        to_indices = edges[:, 1].long() # Extract indices of 'to' nodes
+        from_node_emb = atom_features[from_indices] # Get embedded 'from' nodes
+        to_node_emb = atom_features[to_indices] # Get embedded 'to' nodes
         
         # Dynamic edge attributes from column 3 onward
         raw_edge_values = edges[:, 3:].float()  # (E, N)
         expanded_attrs = raw_edge_values.unsqueeze(-1).expand(-1, -1, self.hidden_dim)
         expanded_attrs = expanded_attrs.permute(1, 0, 2)
-        # print(f"expanded_attrs shape: {expanded_attrs.shape}")
 
         # Directly stack the tensors instead of creating a list of tuples
         edge_features = torch.stack([
@@ -71,6 +77,9 @@ class GraphEmbedder(nn.Module):
 
         Args:
             device (torch.device): The device to move the model to.
+
+        Returns:
+            GraphEmbedder: The GraphEmbedder instance moved to the specified device.
         """
         self.atom_embedding = self.atom_embedding.to(device)
         self.edge_transform = self.edge_transform.to(device)
@@ -80,7 +89,13 @@ class GraphEmbedder(nn.Module):
 # ===== CGCNN =====
 
 class CGCNN(nn.Module):
-    """ Transforms the atomic feature matrix A into learned node embeddings."""
+    """
+    Transforms the atomic feature matrix A into learned node embeddings.
+    
+    Attributes:
+        lookup (AtomFeatureLookup): Lookup table for atomic features.
+        embedding (nn.Linear): Linear transformation layer for node embeddings.
+    """
 
     def __init__(self, input_dim, hidden_dim):
         """
@@ -121,6 +136,9 @@ class CGCNN(nn.Module):
 
         Args:
             device (torch.device): The device to move the model to.
+
+        Returns:
+            CGCNN: The CGCNN instance moved to the specified device.
         """
         self.lookup = self.lookup.to(device)
         self.embedding = self.embedding.to(device)
@@ -130,8 +148,19 @@ class CGCNN(nn.Module):
 # ===== Atom Feature Lookup =====
 
 class AtomFeatureLookup(nn.Module):
-    """"provides atomic features based on atomic number."""
+    """
+    Provides atomic features based on atomic number.
+    
+    Attributes:
+        atom_features (torch.Tensor): Tensor of atomic features for elements 1 to 92.
+    """
     def __init__(self, atom_feature_dim=92):
+        """
+        Initializes the AtomFeatureLookup with atomic features.
+        
+        Args:
+            atom_feature_dim (int): Dimension of atomic feature vectors.
+        """
         super().__init__()
         self.register_buffer("atom_features", torch.zeros((atom_feature_dim, atom_feature_dim)))
 
@@ -171,6 +200,9 @@ class AtomFeatureLookup(nn.Module):
 
         Args:
             device (torch.device): The device to move the model to.
+
+        Returns:
+            AtomFeatureLookup: The AtomFeatureLookup instance moved to the specified device.
         """
         self.atom_features = self.atom_features.to(device)
         super().to(device)
@@ -182,6 +214,11 @@ class EdgeTransformation(nn.Module):
     """
     Transforms RBF-expanded features into edge embeddings learned edge embeddings,
     such that they are suitable for attention calculation.
+
+    Attributes:
+        linear (nn.Linear): Linear transformation layer for edge features.
+        rbf_expansion (RBF): Radial Basis Function (RBF) expansion module.
+        activation (nn.Softplus): Activation function for positive outputs.
     """
 
     def __init__(self, hidden_dim=120, num_rbf_kernels=50, min_rbf_dist=0.0, max_rbf_dist=8.0):
@@ -189,9 +226,10 @@ class EdgeTransformation(nn.Module):
         Initializes the edge transformation module.
 
         Args:
-            num_rbf_kernels (int): Number of RBF kernels for distance expansion.
-            rbf_expansion (RBF): Converts edges into vectors through Radial Basis Function (RBF) kernels.
             hidden_dim (int): Dimension of the output edge embeddings (h).
+            num_rbf_kernels (int): Number of RBF kernels for distance expansion.
+            min_rbf_dist (float): Minimum distance for RBF expansion.
+            max_rbf_dist (float): Maximum distance for RBF expansion.
         """
         super().__init__()
         self.linear = nn.Linear(in_features=num_rbf_kernels, out_features=hidden_dim)  # Linear transformation
@@ -205,11 +243,11 @@ class EdgeTransformation(nn.Module):
 
         Args:
             edges (list of [i, j, distance, type, valid]):
-                - i: source node index
-                - j: target node index
-                - distance: Euclidean distance (float) between atoms i and j
-                - type: 0 (physical) or 1 (augmented)
-                - valid: 1 (valid) or 0 (invalid)
+                - i (int): source node index
+                - j (int): target node index
+                - distance (float): Euclidean distance between atoms i and j
+                - type (int): 0 (physical) or 1 (augmented)
+                - valid (int): 1 (valid) or 0 (invalid)
         
         Returns:
             transformed_edges (torch.Tensor): replaces the distance in the edge list with the transformed distance.
@@ -228,6 +266,9 @@ class EdgeTransformation(nn.Module):
 
         Args:
             device (torch.device): The device to move the model to.
+
+        Returns:
+            EdgeTransformation: The EdgeTransformation instance moved to the specified device.
         """
         self.linear = self.linear.to(device)
         self.rbf_expansion = self.rbf_expansion.to(device)
@@ -248,6 +289,10 @@ class RBF(nn.Module):
 
     Instead of using raw distances, RBF transforms them into a high-dimensional 
     feature space where each entry encodes how close a distance is to predefined centers.
+
+    Attributes:
+        centers (torch.Tensor): Centers of the RBF kernels.
+        gamma (torch.Tensor): Scaling factor for the RBF transformation.
     """
 
     def __init__(self, num_kernels=50, min_dist=0.0, max_dist=8.0):
@@ -286,6 +331,9 @@ class RBF(nn.Module):
 
         Args:
             device (torch.device): The device to move the model to.
+
+        Returns:
+            RBF: The RBF instance moved to the specified device.
         """
         self.centers = self.centers.to(device)
         self.gamma = self.gamma.to(device)

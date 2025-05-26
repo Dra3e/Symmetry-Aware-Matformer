@@ -5,7 +5,14 @@ from models.scripts.global_pooling import GlobalPooling
 from models.scripts.predicted_property import PredictedProperty
 
 class Readout(nn.Module):
-    """Class that detmermines pools information about a crystal to predict its properties."""
+    """
+    Class that pools information about a crystal to predict its properties.
+
+    Attributes:
+        update (Update): Instance of the Update class.
+        global_pooling (GlobalPooling): Instance of the GlobalPooling class.
+        predicted_property (PredictedProperty): Instance of the PredictedProperty class.
+    """
     def __init__(self, hidden_dim, output_dim):
         """
         Initilize the readout steps hidden dimensions for linear transformation.
@@ -21,14 +28,15 @@ class Readout(nn.Module):
 
     def forward(self, aggregated_input, atom_features):
         """
-        Pool atom the strenght/effect of atoms to determine predicted properties of the crystal.
+        Pool the attention and features of each of the atoms to determine the predicted properties of the crystal.
         
         Args:
-            aggregated_input (torch.tensor): An ordered list of length n with the strenght/effect of the atoms in the crystal.
-            atom_features (torch.tensor): An ordered matrix of size n x 120, where the placement of each row matches the strength/effect of the atom in the aggregated_input list.
+            aggregated_input (torch.tensor): An ordered list of length n with the attention of each of the atoms in the crystal.
+            atom_features (torch.tensor): An ordered matrix of size n x 120, where the placement of each row matches the atom in the aggregated_input list.
 
         Returns:
             prediction: The value of the predicted property of the crystal.
+            pooled_features: The pooled features of the crystal.
         """
         updated_features = self.update.forward(aggregated_input, atom_features)
         pooled_features = self.global_pooling.forward(updated_features)
@@ -41,6 +49,9 @@ class Readout(nn.Module):
         
         Args:
             device (torch.device): The device to move the instance to.
+
+        Returns:
+            Readout: instance of the Readout class moved to the specified device. 
         """
         self.update = self.update.to(device)
         self.predicted_property = self.predicted_property.to(device)

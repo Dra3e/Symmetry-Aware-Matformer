@@ -5,94 +5,91 @@ from models.scripts.attention_function import AttentionFunction
 
 class TransformerLayer(nn.Module):
     """
-    A multi-headed transformer layer that computes edge-based attention
-    and aggregates messages per node.
+    A multi-headed transformer layer that computes edge-based attention and aggregates messages per node.
     
-    Input node features:     [M, D]
-    Input edge features:     [N, 6, D]
-    Output node features:    [M, D]
+    Attributes:
+        hidden_dim (int): Epected dimension of inputs and outputs.
+        head_size (int): Number of attention heads.
+        Gradient (float): Scaling for soft-masking invalid edges.
+        feature_dim (int): Dimension of concatenated queries, keys, and values, (3*hidden_dim).
+        feature_dim_per_head (int): Dimension allocated to each head (3*hidden_dim/head_size).
+        attention_function (AttentionFunction): Instance of the AttentionFunction class.
+        linear_weight (nn.Parameter): Learnable weight for each head.
+        linear_bias (nn.Parameter): Learnable bias for each head.
+        out_projection (nn.Linear): Linear layer for final projection.
     """
     def __init__(self, hidden_dim, head_size, gradient):
         """
+        Initializes the TransformerLayer.
+
         Args:
-            hidden_dim (int): Dimension D of node and edge features.
-            head_size (int): Number of attention heads H.
+            hidden_dim (int): Epected dimension of inputs and outputs.
+            head_size (int): Number of attention heads.
             gradient (float): Scaling for soft-masking invalid edges.
         """
         super().__init__()
-        self.hidden_dim = hidden_dim  # D
-        self.head_size = head_size   # H
+        self.hidden_dim = hidden_dim
+        self.head_size = head_size
         self.gradient = gradient
 
-        self.feature_dim = hidden_dim * 3  # 3D (from value_i + value_j + edge)
-        self.feature_dim_per_head = self.feature_dim // head_size  # 3D / H
+        self.feature_dim = hidden_dim * 3  # dimension of concatenated queries, keys, and values.
+        self.feature_dim_per_head = self.feature_dim // head_size  # the dimension allocated to each head.
 
-        # Multi-head attention function
         self.attention_function = AttentionFunction(hidden_dim, head_size)
 
-        # Learnable per-head linear transform: one per head
-        # Projects each value vector: (3D/H) → (3D/H)
+        # Learnable weight for each head.
         self.linear_weight = nn.Parameter(torch.randn(
-            head_size, self.feature_dim_per_head, self.feature_dim_per_head
-        ))  # Shape: (H, 3D/H, 3D/H)
+            head_size, self.feature_dim_per_head, self.feature_dim_per_head # Create parameter as a 3D matrix.
+        )) 
 
+        # Learnable bias for each head.
         self.linear_bias = nn.Parameter(torch.zeros(
-            head_size, self.feature_dim_per_head
-        ))  # Shape: (H, 3D/H)
+            head_size, self.feature_dim_per_head # Create parameter as a 2D matrix.
+        ))
 
-        # Final projection: collapse from 3D → D after aggregation
         self.out_projection = nn.Linear(self.feature_dim, hidden_dim)
 
     def forward(self, node_chunk, edge_chunk):
         """
+        Forward pass through the transformer layer.
+
         Args:
-            node_chunk: [M, D]  — features for M nodes
-            edge_chunk: [N, 6, D] — edge info:
-                [:, 0, :] = f_i     [N, D]  → destination node features
-                [:, 1, :] = f_j     [N, D]  → source node features
-                [:, 2, :] = e_ij    [N, D]  → edge features
-                [:, 3, 0] = e_sym   [N]     → symmetry indicator
-                [:, 4, 0] = e_mask  [N]     → validity mask
-                [:, 5, 0] = tgt_idx [N]     → indices into node_chunk
+            node_chunk (N, hidden_dim): List of N nodes/atoms to process.
+            edge_chunk (E, 6, hidden_dim): Edges going to or from nodes in node_chunk.
+                edge info:
+                [:, 0, :] = f_i         (E, hidden_dim) matrix of destination node features
+                [:, 1, :] = f_j         (E, hidden_dim) matrix of source node features
+                [:, 2, :] = e_ij        (E, hidden_dim) matrix of embedded distance (edge feature)
+                [:, 3, 0] = e_sym       (E) symmetry mask indicating if edge is displaced over augmentation [1=yes, 0=no]
+                [:, 4, 0] = e_mask      (E) validity mask for edges indicating if graph is valid [1=yes, 0=no]
+                [:, 5, 0] = target_idx  (E) Indices of destination node features in 'node_chunk'.
         Returns:
-            m_i_chunk: [M, D] → aggregated message per node
+            m_i_chunk (N, hidden_dim): aggregated message per node in node_chunk.
         """
-        # Compute multi-head attention and value output
-        alpha, value = self.attention_function(edge_chunk, self.gradient)
-        # alpha, value: [H, N, 3D/H]
+        # Get attention (alpha) and concatenated value of each edge.
+        alpha, value = self.attention_function.forward(edge_chunk, self.gradient)
 
-        # Apply linear transform to each head's values:
-        # value:      [H, N, 3D/H]
-        # weight:     [H, 3D/H, 3D/H]
-        # bias:       [H, 3D/H]
-        transformed = torch.einsum("hnd,hdf->hnf", value, self.linear_weight) + self.linear_bias.unsqueeze(1)  # [H, N, 3D/H]
-
-        # Weight values using attention coefficients
-        weighted = alpha * transformed  # [H, N, 3D/H]
-
-        # Reshape and merge heads: [H, N, 3D/H] → [N, 3D]
-        m_i_per_edge = weighted.permute(1, 0, 2).reshape(-1, self.feature_dim)
-
-        # Scatter to sum messages per destination node:
-        # m_i_per_edge: [N, 3D] → aggregated: [M, 3D]
-        m_i_chunk = torch.zeros(
-            node_chunk.size(0),  # num nodes (M)
-            m_i_per_edge.size(1),  # feature size (3D)
-            device=m_i_per_edge.device,
-            dtype=m_i_per_edge.dtype
+        # Calculate message of each edge.
+        weighted_value = torch.einsum("hnd,hdf->hnf", value, self.linear_weight) + self.linear_bias.unsqueeze(1) # Apply linear transformation to value vectors for each head.
+        attention_scores = alpha * weighted_value
+        message_per_edge = attention_scores.permute(1, 0, 2).reshape(-1, self.feature_dim) # Reshape and merge heads, such that the 3D matrix; attention_scores, becomes a 2D matrix of size (E, 3*hidden_dim).
+        
+        # Aggregate attention scores for each node in node_chunk.
+        message_per_atom_in_chunk = torch.zeros( # Create a (M, 3*hidden_dim) matrix where all entries are 0.
+            node_chunk.size(0),             # Number of nodes: M
+            message_per_edge.size(1),       # feature_dim: 3*hidden_dim
+            device=message_per_edge.device,
+            dtype=message_per_edge.dtype
         )
-
-        # Use scatter_add to accumulate values across nodes
-        m_i_chunk.scatter_add_(
-            0,  # Dimension for accumulation
-            edge_chunk[:, 5, 0].long().unsqueeze(1).expand(-1, m_i_per_edge.size(1)),  # Indices, expanded to match feature size
-            m_i_per_edge  # Values to add
+        message_per_atom_in_chunk.scatter_add_( # Calculate message of each node by summarizing messages of each edge with source from that node.
+            dim=0,
+            index=edge_chunk[:, 5, 0].long().unsqueeze(1).expand(-1, message_per_edge.size(1)),
+            src=message_per_edge
         )
+        
+        message_per_atom_in_chunk = self.out_projection(message_per_atom_in_chunk) # Apply final projection to reduce features
 
-        # Final projection from 3D → D
-        m_i_chunk = self.out_projection(m_i_chunk)  # [M, D]
-
-        return m_i_chunk
+        return message_per_atom_in_chunk
     
     def to(self, device):
         """
@@ -100,6 +97,9 @@ class TransformerLayer(nn.Module):
         
         Args:
             device (torch.device): The device to move the instance to.
+
+        Returns:
+            TransformerLayer: instance of the TransformerLayer class moved to the specified device. 
         """
         self.attention_function = self.attention_function.to(device)
         self.linear_weight = nn.Parameter(self.linear_weight.to(device))

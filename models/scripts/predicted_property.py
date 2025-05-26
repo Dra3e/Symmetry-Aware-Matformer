@@ -7,6 +7,10 @@ class PredictedProperty(nn.Module):
     This class is used to predict properties of the input data using a two-layer feedforward neural network.
     The first layer applies a linear transformation followed by the SiLU activation function,
     and the second layer applies another linear transformation.
+
+    Attributes:
+        LN1 (nn.Linear): First linear transformation layer.
+        LN2 (nn.Linear): Second linear transformation layer.
     """
     def __init__(self, input_dim, hidden_dim):
         """
@@ -25,7 +29,7 @@ class PredictedProperty(nn.Module):
         Compute the predicted property using two linear transformations and the SiLU activation on the crystal features.
             y_property = LinearTransform(SiLu(LinearTransform(F_crystal)))
 
-        Parameters:
+        Args:
             pooled_features (torch.Tensor): The pooled features of the entire crystal.
 
         Returns:
@@ -42,6 +46,9 @@ class PredictedProperty(nn.Module):
         
         Args:
             device (torch.device): The device to move the instance to.
+        
+        Returns:
+            PredictedProperty: The PredictedProperty instance moved to the specified device.
         """
         self.LN1 = self.LN1.to(device)
         self.LN2 = self.LN2.to(device)

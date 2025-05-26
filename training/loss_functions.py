@@ -7,6 +7,9 @@ class MultiTaskLoss(torch.nn.Module):
     Each task is weighted by a learnable log variance (log σ²).
     This allows the model to learn an appropriate weighting for each task during training.
     Reference: Kendall et al., "Multi-Task Learning Using Uncertainty to Weigh Losses for Scene Geometry and Semantics" (CVPR 2018).
+
+    Attributes:
+        log_vars (torch.nn.Parameter): Learnable parameters representing the log variance for each task.
     """
     def __init__(self, n_tasks: int = 2):
         """
@@ -16,8 +19,7 @@ class MultiTaskLoss(torch.nn.Module):
             n_tasks (int): Number of tasks to balance. Default is 2.
         """
         super().__init__()
-        # Initialize log σ² for each task to 0 (σ = 1), giving equal influence to all tasks initially.
-        self.log_vars = torch.nn.Parameter(torch.zeros(n_tasks, requires_grad=True))
+        self.log_vars = torch.nn.Parameter(torch.zeros(n_tasks, requires_grad=True)) # Initialize log σ² for each task to 0 (σ = 1), giving equal influence to all tasks initially.
 
     def forward(self, *task_losses: torch.Tensor) -> torch.Tensor:
         """
@@ -86,9 +88,6 @@ class MultiTaskLoss(torch.nn.Module):
             torch.Tensor: The contrastive loss.
         """
         assert actual_F.shape == predicted_F.shape, "Inputs are not the same size!"
-        # assert actual_F.ndim == 2, "Inputs must be 2D tensors!"
-        # assert flag.ndim == 1, "Flag must be a 1D tensor!"
-        # assert actual_F.size(0) == flag.size(0), "Flag size must match the batch size!"
 
         distances = torch.norm(actual_F - predicted_F, dim=0) # Compute Euclidean distances between actual and predicted feature vectors
 
@@ -106,9 +105,20 @@ class MultiTaskLoss(torch.nn.Module):
     
     @staticmethod
     def LossContrastive_Vectorized(latent_ref, latents, flags, margin):
-        if latents.numel() == 0:                      # nothing to compare with
-            # Return *zero* so the other task still back‑propagates
-            return torch.zeros(1, device=latent_ref.device, requires_grad=True)
+        """
+        Computes the contrastive loss using Euclidean distance in a vectorized manner.
+
+        Args:
+            latent_ref (torch.Tensor): Reference latent vector.
+            latents (torch.Tensor): Latent vectors to compare against.
+            flags (torch.Tensor): Binary tensor indicating positive (1) or negative (0) pairs.
+            margin (float): Margin for negative pairs.
+        
+        Returns:
+            torch.Tensor: The contrastive loss.
+        """
+        if latents.numel() == 0: # Nothing to compare with
+            return torch.zeros(1, device=latent_ref.device, requires_grad=True) # Return 'zero' so the other task still back‑propagates
 
         pos = latents[flags == 1]
         neg = latents[flags == 0]
@@ -120,4 +130,4 @@ class MultiTaskLoss(torch.nn.Module):
         loss_neg = torch.clamp(margin - dist_neg, min=0).pow(2).mean() \
                 if dist_neg is not None else 0.0
 
-        return (loss_pos + loss_neg)        # always finite; gradients flow
+        return (loss_pos + loss_neg)        # Always finite; gradients flow

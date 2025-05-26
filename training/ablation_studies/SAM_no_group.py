@@ -5,9 +5,23 @@ from models.scripts.invalid_augmentations import InvalidAugmenter
 from setup import DATA_PATH
 from training.engine import SAM_TrainingEngine
 
-
 def NoGroupTheory(crystal_property, learning_rate, training_data_file, validation_data_file, num_epochs, batch_size, margin):
-    graph_builder = NoGproupTheory()
+    """
+    Trains the SAM model without group theory component.
+
+    Args:
+        crystal_property (str): The property to be predicted.
+        learning_rate (float): Learning rate for the optimizer.
+        training_data_file (str): Path to the training data file.
+        validation_data_file (str): Path to the validation data file.
+        num_epochs (int): Number of epochs for training.
+        batch_size (int): Batch size for training.
+        margin (float): Margin for the loss function.
+
+    Returns:
+        float: The best loss achieved during training.
+    """
+    graph_builder = NoGroupTheory() # Initialize the graph builder without group theory
     return SAM_TrainingEngine(
         learning_rate=learning_rate,
     ).fit(
@@ -22,7 +36,10 @@ def NoGroupTheory(crystal_property, learning_rate, training_data_file, validatio
         margin=margin
     )
 
-class NoGproupTheory:
+class NoGroupTheory:
+    """
+    Class to build graphs for the SAM model without group theory component.
+    """
     def __init__(self):
         self.invalid_aug = InvalidAugmenter()
 

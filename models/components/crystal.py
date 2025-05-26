@@ -11,140 +11,122 @@ def suppress_spglib_warnings():
     Suppresses C-level warnings printed to stdout/stderr by spglib without hiding real Python exceptions.
     """
     with open(os.devnull, 'w') as devnull:
-        # Save the real stdout (1) and stderr (2) file descriptors
+        # Save the current output streams (stdout and stderr)
         old_stdout_fd = os.dup(1)
         old_stderr_fd = os.dup(2)
 
         try:
-            # Redirect stdout and stderr to /dev/null
+            # Redirect stdout and stderr to a "black hole" (no output)
             os.dup2(devnull.fileno(), 1)
             os.dup2(devnull.fileno(), 2)
-            yield
+            yield # Allow the code inside the context manager to run
         finally:
             # Restore original file descriptors
             os.dup2(old_stdout_fd, 1)
             os.dup2(old_stderr_fd, 2)
-            os.close(old_stdout_fd)
+            os.close(old_stdout_fd) # Close the saved file descriptors
             os.close(old_stderr_fd)
 
 class Crystal:
     """
-    Representation of a crystal structure A, X, L.
-        A is a 2D matrix (torch.tensor) of dimension n x f, where n is the number of atoms in the crystal and f is the number of features we know about that atom, such as it magnetism, conductivity, atom number, and so on.
-            Each row of this vector a_i corresponds to an atom in the crystal and each member a_ij is a feature of that atom.
-        X is a 2D matrix as well of dimension n x 3, where each row x_i is the x,y,z coordinates of the atom a_i in a 3D space.
-            We know which atom corresponds to which set of coordinates by their placement i, such that the i'th row in the X matrix is the coordinates for the i'th atom in the A matrix.
-        L is a 2D matrix of dimenstion 3 x 3, which represents the crystal lattice.
+    Representation of a crystal structure A, P, L.
+
+    Attributes:
+        A (torch.Tensor): (n, f) matrix where n is the number of atoms and f is the number of features per atom.
+        P (torch.Tensor): (n, 3) matrix where each row represents the x, y, z coordinates of an atom.
+        L (torch.Tensor): (3, 3) matrix representing the lattice vectors of the crystal.
     """
-    def __init__(self, A, X, L):
+    def __init__(self, A, P, L):
         """
         Initializes a Crystal structure.
 
         Args:
-            - A: Tensor of shape (n, f) containing atomic features (remains unchanged).
-            - X: Tensor of shape (n, 3) containing atomic coordinates.
-            - L: Tensor of shape (3, 3) representing the lattice vectors.            
-
+            A (torch.Tensor): Atomic features of shape (n, f).
+            P (torch.Tensor): Atomic coordinates of shape (n, 3).
+            L (torch.Tensor): Lattice vectors of shape (3, 3).         
         """
         self.A = A.clone().detach() if isinstance(A, torch.Tensor) else torch.tensor(A, dtype=torch.float32)
-        self.X = X.clone().detach() if isinstance(X, torch.Tensor) else torch.tensor(X, dtype=torch.float32)
+        self.P = P.clone().detach() if isinstance(P, torch.Tensor) else torch.tensor(P, dtype=torch.float32)
         self.L = L.clone().detach() if isinstance(L, torch.Tensor) else torch.tensor(L, dtype=torch.float32)
-
-    def translate_crystal(self, coefficients): 
-        """
-        Move a crystal structure through 3D space by a translation vector that is a multiple of the lattice vectors.
-
-        Args:
-        - coefficients: Tensor of shape (1, 3) containing integer coefficients for the lattice translation.
-
-        Returns:
-        - A_translated: Same as A.
-        - X_translated: Tensor of shape (n, 3) with atomic coordinates shifted by a lattice-based translation vector.
-        - L_translated: Same as L.
-        """
-        try:
-            # Ensure coefficients is a tensor of integers
-            if not isinstance(coefficients, torch.Tensor):
-                coefficients = torch.tensor(coefficients, dtype=torch.int32)
-            if len(coefficients) != 3 or torch.is_floating_point(coefficients):
-                raise ValueError("Translation coefficients must be a 3-element integer tensor")
-        except AttributeError:
-            raise ValueError("Invalid Input")
-        
-        # Compute translation vector as an integer combination of lattice vectors
-        translation_vector = torch.matmul(coefficients.float(), self.L)
-        X_translated = self.X + translation_vector # Apply translation
-
-        return self.A, X_translated, self.L
     
     def get_symmetry_operations(self):
         """
-        Returns a list of proper 3×3 rotation matrices (torch.Tensor) – no translations,
-        no extra dimensions, identity removed.
+        Retrieves a list of (3, 3) matrices from spglib as valid symmetry operations to perform on the crystal strucutre.
+
+        Returns:
+            symmetry_operations (List[torch.Tensor]): List of (3, 3) matrices excluding the identity matrix.
         """
+        # Convert lattice, positions, and atomic numbers to numpy arrays
         lattice   = self.L.cpu().numpy()
-        positions = self.X.cpu().numpy() @ np.linalg.inv(lattice)      # fractional
-        numbers   = self.A[:, 0].int().cpu().numpy()                   # Z of each atom
+        positions = self.P.cpu().numpy() @ np.linalg.inv(lattice)      # Converts the atom positions from cartesian coordinates to fractional coordinates
+        numbers   = self.A[:, 0].int().cpu().numpy()                   # First column of the atom feature matrix, used to identify unique atoms, e.g. atomic number.
         cell      = (lattice, positions, numbers)
 
         with suppress_spglib_warnings():
-            dataset = spglib.get_symmetry_dataset(cell)
+            dataset = spglib.get_symmetry_dataset(cell) # Use spglib to get symmetry dataset.
 
-        # (N, 3, 3) → torch tensor on same device / dtype as L
-        R_all = torch.as_tensor(dataset.rotations,
-                                dtype=self.L.dtype, device=self.L.device)          # (N,3,3)
+        # Extract rotation matrices as symmetry operation tensors.
+        symmetry_operations = torch.as_tensor(dataset.rotations,dtype=self.L.dtype, device=self.L.device)
+        eye   = torch.eye(3, dtype=self.L.dtype, device=self.L.device)      # Create the identity matrix of the crystal structure.
+        mask  = (symmetry_operations - eye).abs().sum(dim=(1, 2)) > 1e-6    # Find all symmetry operations that are not the identity matrix.
+        symmetry_operations = symmetry_operations[mask]                     # Remove the identity matrix from symmetry operations.
 
-        # drop the identity (within a small tolerance)
-        eye   = torch.eye(3, dtype=self.L.dtype, device=self.L.device)
-        mask  = (R_all - eye).abs().sum(dim=(1, 2)) > 1e-6                         # (N,)
-        R_all = R_all[mask]                                                        # (K,3,3)
-
-        # return a *list* so `for op in sym_ops:` yields a 3×3 tensor each time
-        return [R for R in R_all]
+        return [op for op in symmetry_operations] # Convert to list.
     
     def get_translation_vectors_to_neighbour_cells(self, cutoff):
-        max_n = int(np.ceil(cutoff / min(np.linalg.norm(self.L, axis=1))))  # worst‑case
-        shifts = torch.tensor(
-            [[i, j, k]  for i in range(-max_n, max_n + 1)
-                        for j in range(-max_n, max_n + 1)
-                        for k in range(-max_n, max_n + 1)
+        """
+        Computes the translation vectors to neighboring unit cells within a specified cutoff distance.
+
+        Args:
+            cutoff (float): The maximum distance to consider for neighboring unit cells.
+
+        Returns:
+            translation_shifts (torch.Tensor): A tensor where each row is a translation vector to a neighboring unit cell.
+        """
+        # Calculate the maximum number of neighboring cells needed in each direction to cover the cutoff distance.
+        max_n = int(np.ceil(cutoff / min(np.linalg.norm(self.L, axis=1))))
+        shifts = torch.tensor( # Translation vectors to the neighboring unit cells within the cutoff distance.
+            [[i, j, k]  for i in range(-max_n, max_n + 1) # Create neighbours along the x axis.
+                        for j in range(-max_n, max_n + 1) # Create neighbours along the y axis.
+                        for k in range(-max_n, max_n + 1) # Create neighbours along the z axis.
                         if (i, j, k) != (0, 0, 0)],
             dtype=self.L.dtype,
             device=self.L.device
-        )                                 # (M,3)  of integer offsets
+        )     
         return shifts
     
     def apply_augmentations(self, symmetry_operations):
         """
-        Applies symmetry operations to a crystal structure.
+        Computes a list of augmented versions of the crystal based on a list of symmetry operation matrices.
 
         Args:
-            symmetry_operations: List of 3x3 rotation matrices representing symmetry operations.
+            symmetry_operations (List[torch.Tensor]): list of (3, 3) matrices to apply to the crystal structure.
 
         Returns:
-            augmented_crystals: List containing transformed Crystal instances, each with updated atomic positions.
+            augmented_crystals (List[torch.Tensor]): list of crystal augmented structures.
         """
         augmented_crystals = []
 
+        # Apply each of the symmetry operations to the atomic position P: P' = op * P
         for op in symmetry_operations:
-            augmented_crystal = Crystal(self.A, self.X, self.L) # New Crystal strucutre with the same atomic positions and lattice
-
-            augmented_crystal.X = (op @ self.X.T).T  # Apply the symmetry operation to the atomic position X: X' = op * X
+            augmented_crystal = Crystal(self.A, self.P, self.L)
+            augmented_crystal.P = (op @ self.P.T).T 
             augmented_crystals.append(augmented_crystal)
 
         return augmented_crystals
     
     def to(self, device):
         """
-        Move the crystal structure to the specified device (CPU or GPU).
+        Moves the crystal structure to the specified device (CPU or GPU).
 
         Args:
-            device: Device to move the crystal structure to (e.g., 'cpu' or 'cuda').
+            device: The target device (e.g., 'cpu' or 'cuda').
 
         Returns:
-            None
+            Crystal: The crystal structure moved to the specified device.
         """
+        # Move atomic features, positions, and lattice vectors to the target device
         self.A = self.A.to(device)
-        self.X = self.X.to(device)
+        self.P = self.P.to(device)
         self.L = self.L.to(device)
         return self

@@ -1,9 +1,10 @@
-from __future__ import annotations
-import os
-from pathlib import Path
-import pickle
-from typing import Callable, Sequence
 import torch
+import os
+import pickle
+
+from __future__ import annotations
+from pathlib import Path
+from typing import Callable, Sequence
 from torch.utils.data import Dataset, DataLoader, default_collate
 from pymatgen.core import Structure
 from models.components.crystal import Crystal
@@ -13,6 +14,14 @@ class DataGetter(Dataset):
     Class for loading and processing crystal data from a PKL file.
     This class handles the loading of crystal structures and their associated properties,
     and provides a DataLoader for batching and shuffling the data.
+
+    Attributes:
+        crystals (list[Crystal]): List of Crystal objects.
+        targets (list[float | int | torch.Tensor]): List of target properties associated with the crystals.
+        num_data_points (int): Number of data points in the dataset.
+        graph_builder (Callable[[Crystal], list]): Function to convert a Crystal object into a graph representation.
+        _graphs (list | None): On-demand cache for graph representations.
+        loader (DataLoader): DataLoader for batching and shuffling the data.
     """
     def __init__(self, *, path: str | Path, property_name: str, graph_builder: Callable[[Crystal], list], batch_size=32, shuffle=True, collate_fn: Callable | None = None) -> None:
         """
@@ -28,10 +37,9 @@ class DataGetter(Dataset):
         """
         super().__init__()
 
-        # Load crystals and properties from the PKL file
-        self.crystals, self.targets = self.load_crystals(path, property_name)
+        self.crystals, self.targets = self.load_crystals(path, property_name) # Load crystals and properties from the PKL file
         assert self.crystals, (
-            "No valid crystals found – check your PKL path and property key."
+            "No valid crystals found - check your PKL path and property key."
         )
         self.num_data_points = len(self.crystals) 
 
@@ -51,7 +59,6 @@ class DataGetter(Dataset):
     @staticmethod
     def load_crystals(pkl_path: str | Path, property_name: str) -> tuple[list[Crystal], list[float | int | torch.Tensor]]:
         """
-        Inline replacement for get_training_data_from_pkl.
         Loads crystal data and their associated properties from a pickle file.
 
         Args:
@@ -73,8 +80,7 @@ class DataGetter(Dataset):
 
             atoms = entry["atoms"] # Extract atomic data
             try:
-                # Create a pymatgen Structure object
-                struct = Structure(
+                struct = Structure( # Create a pymatgen Structure object
                     lattice=atoms["lattice_mat"],
                     species=atoms["elements"],
                     coords=atoms["coords"],
@@ -84,10 +90,10 @@ class DataGetter(Dataset):
                 A = torch.tensor(
                     [[s.specie.number] for s in struct.sites], dtype=torch.int64
                 )
-                X = torch.tensor(struct.cart_coords, dtype=torch.float32)
+                P = torch.tensor(struct.cart_coords, dtype=torch.float32)
                 L = torch.tensor(struct.lattice.matrix, dtype=torch.float32)
 
-                crystals.append(Crystal(A, X, L))
+                crystals.append(Crystal(A, P, L))
                 props.append(value)
 
             except Exception as exc:
@@ -105,7 +111,7 @@ class DataGetter(Dataset):
             batch: A batch of data.
 
         Returns:
-            tuple: A tuple containing a list of graphs and a tensor of targets.
+            tuple: A tuple containing a list of graphs and a collated target property.
         """
         graphs, targets = zip(*batch) # Separate graphs and targets
         return list(graphs), default_collate(targets)
@@ -119,19 +125,19 @@ class DataGetter(Dataset):
         """
         return len(self.crystals)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, index: int):
         """
         Retrieves a single graph by index.
 
         Args:
-            idx (int): Index of the graph.
+            index (int): Index of the graph.
 
         Returns:
             tuple: A tuple containing the graph representation and the target property.
         """
-        if self._graphs[idx] is None: # If graph is not cached, build it
-            self._graphs[idx] = self.graph_builder(self.crystals[idx])
-        return self._graphs[idx], self.targets[idx]
+        if self._graphs[index] is None: # If graph is not cached, build it
+            self._graphs[index] = self.graph_builder(self.crystals[index])
+        return self._graphs[index], self.targets[index]
 
     # Convenience wrappers
     def __iter__(self):

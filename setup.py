@@ -1,5 +1,6 @@
 import os
 import torch
+
 from torch.utils.data import DataLoader
 from models.components.ACG import ACG
 from training.engine import SAM_TrainingEngine
@@ -125,10 +126,10 @@ def setup_training(data_files):
     
     if(default == "N"):
         try:
-            num_epochs = int(input(f"Number of epochs (Default: {DEFAULT_NUM_EPOCHS}):"))
-            batch_size = int(input(f"Batch size (Default: {DEFAULT_BATCH_SIZE});"))
-            learning_rate = float(input(f"Learning rate (Default: {DEFAULT_LEARNING_RATE}):"))
-            margin = float(input(f"Margin (Default: {DEFAULT_MARGIN}):"))
+            num_epochs = int(input(f"Number of epochs (Default: {DEFAULT_NUM_EPOCHS}): > "))
+            batch_size = int(input(f"Batch size (Default: {DEFAULT_BATCH_SIZE}): > "))
+            learning_rate = float(input(f"Learning rate (Default: {DEFAULT_LEARNING_RATE}): > "))
+            margin = float(input(f"Margin (Default: {DEFAULT_MARGIN}): > "))
         except ValueError:
             print("Invalid input. Using default settings.")
 

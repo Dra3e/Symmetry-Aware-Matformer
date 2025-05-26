@@ -1,6 +1,7 @@
-from typing import Callable, List
 import torch
 import datetime
+
+from typing import Callable, List
 from models.Transformer import Transformer
 from models.components.crystal import Crystal
 from models.components.crystal_graph import CrystalGraph
@@ -11,6 +12,13 @@ from tqdm import tqdm
 class SAM_TrainingEngine:
     """
     Training engine for the SAM model, which handles the training and evaluation process.
+
+    Attributes:
+        device (torch.device): Device to run the model on (CPU or GPU).
+        model (Transformer): The SAM model.
+        multi_loss (MultiTaskLoss): Multi-task loss function.
+        model_optimizer (torch.optim.AdamW): Optimizer for the model and loss parameters.
+        scaler (torch.cuda.amp.GradScaler): Scaler for mixed precision training.
     """
     def __init__(self, learning_rate = 3e-4):
         """
@@ -22,12 +30,12 @@ class SAM_TrainingEngine:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = Transformer().to(self.device)
         self.multi_loss = MultiTaskLoss(n_tasks=2).to(self.device)
-        self.model_optimizer = torch.optim.AdamW(
+        self.model_optimizer = torch.optim.AdamW( # Optimizer for model and loss parameters
             list(self.model.parameters()) + list(self.multi_loss.parameters()),
-            lr           =learning_rate,          # typical baseline for transformers
-            betas        = (0.9, 0.98),   # same as "Noam" paper defaults
+            lr           =learning_rate,        # Typical baseline for transformers
+            betas        = (0.9, 0.98),         # Same as "Noam" paper defaults
             weight_decay = 1e-2
-        ) # Optimizer for model and loss parameters
+        )
         # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
         self.scaler = torch.cuda.amp.GradScaler(enabled=(self.device.type == 'cuda'))
     
@@ -41,9 +49,13 @@ class SAM_TrainingEngine:
             validation_path (str): Path to the validation dataset.
             graph_builder (Callable): Function to build graphs from crystals.
             loss_type (str): Type of loss to use ("multi", "mse", or "contrastive").
+            evaluation_loss_type (str): Type of loss to use for evaluation ("mse" or "contrastive").
             num_epochs (int): Number of training epochs.
             batch_size (int): Batch size for training.
             margin (float): margin for contrastive loss.
+
+        Returns:
+            float: Best validation loss achieved during training.
         """
         # Create training and validation datasets
         training_data_getter = DataGetter(
@@ -51,7 +63,7 @@ class SAM_TrainingEngine:
                 property_name  = property,
                 graph_builder  = graph_builder,
                 batch_size     = batch_size,
-                shuffle        = True,         # shuffle only on the training split
+                shuffle        = True,         # Shuffle only on the training split
         )
         training_dataloader = training_data_getter.loader
         eval_dataloader = DataGetter(
@@ -59,7 +71,7 @@ class SAM_TrainingEngine:
                 property_name  = property,
                 graph_builder  = graph_builder,
                 batch_size     = batch_size,
-                shuffle        = False,        # keep order for evaluation
+                shuffle        = False,         # Keep order for evaluation
         ).loader
         best_eval_loss = float('inf')           # Track the best validation loss
         best_model_state = None                 # Store the best model state
@@ -70,21 +82,18 @@ class SAM_TrainingEngine:
             epoch_loss = 0.0 # Initialize epoch loss
 
             for graphs, target_values in tqdm(training_dataloader, desc="Training on crystals", unit="batch"):
-                # Move crystals and targets to device
-                graphs, target_values = self._move_to_device(graphs, target_values)
+                graphs, target_values = self._move_to_device(graphs, target_values) # Move crystals and targets to device
                 with torch.cuda.amp.autocast(enabled=(self.device.type == 'cuda'), dtype=torch.bfloat16): # Mixed precision
-                    # Forward pass and compute loss
-                    model_loss = self._get_loss(
+                    model_loss = self._get_loss( # Forward pass and compute loss
                         graph_batch=graphs, 
                         loss_type=loss_type, 
                         target_values=target_values, 
                         margin=margin
                     )
-                    # Backpropagation and optimization
-                    self.model_optimizer.zero_grad()
+                    self.model_optimizer.zero_grad() # Backpropagation and optimization
                     if model_loss.requires_grad and model_loss.grad_fn is not None:
-                        self.scaler.scale(model_loss).backward()
-                        self.scaler.step(self.model_optimizer)
+                        self.scaler.scale(model_loss).backward() 
+                        self.scaler.step(self.model_optimizer) 
                         self.scaler.update()
                     else:
                         print("⚠️ Skipping batch: No gradient flow detected.")
@@ -100,12 +109,12 @@ class SAM_TrainingEngine:
             )
             print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {epoch_loss / len(training_dataloader):.4f}, Eval Loss: {eval_loss:.4f}")
 
-            # Save the best model
+            # Save the best model loss
             if eval_loss < best_eval_loss:
                 best_eval_loss = eval_loss
                 best_model_state = self.model.state_dict().copy()
 
-        # Save the best model
+        # Save the best model state
         if best_model_state:
             date = datetime.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
             name = f"training/results/{property}_{date}.pth"
@@ -136,7 +145,7 @@ class SAM_TrainingEngine:
         total_loss = 0.0
         sample_count = 0
 
-        with torch.no_grad():
+        with torch.no_grad(): # Disable gradient calculation
             for graphs, target_values in dataloader:
                 # Move graphs and targets to device
                 graphs = [[g.to(self.device) for g in g_list] for g_list in graphs]  # Move each graph to the device
@@ -176,18 +185,17 @@ class SAM_TrainingEngine:
         for i, (predictions, latents, graph_list) in enumerate(results):
             target = target_values[i]
 
-            valid_prediction = predictions[valid_grah_index] #Get the prediction of the valid graph e.g. the crystal
+            valid_prediction = predictions[valid_grah_index] # Get the prediction of the valid graph e.g. the crystal
             loss_property = MultiTaskLoss.LossProperty(
                 actual_Y = target.expand_as(valid_prediction),
                 predicted_Y = valid_prediction
             )
 
-            
             flags = torch.tensor([g.m_valid for g in graph_list], dtype=torch.float32, device=self.device)
             lat_slice   = latents[:valid_grah_index]
             flag_slice  = flags[:valid_grah_index]
-            if lat_slice.numel() == 0:                       # ← no augments this crystal
-                mean_loss_contrastive = torch.zeros(          # keep graph‑level shape
+            if lat_slice.numel() == 0:                      # No augments this crystal
+                mean_loss_contrastive = torch.zeros(        # Keep graph‑level shape
                     1, device=self.device, requires_grad=True)
             else:
                 mean_loss_contrastive = MultiTaskLoss.LossContrastive_Vectorized(

@@ -2,7 +2,25 @@ import torch
 import torch.nn as nn
 
 class AttentionFunction(nn.Module):
-    """Multi-headed attention function for edge-based attention calculation."""
+    """
+    Multi-headed attention function for edge-based attention calculation.
+        base_attention = Sigmoid( LNorm( Hadmard( Query, Key ) / 3*dimension_key ))
+        sym_masked_attention = Hadamard( base_attention, 1 + weight * symmetry_mask * embedded_distance )
+        validity_masked_attention = Hadamard( sym_masked_attention, validity_mask )
+
+    Attributes:
+        hidden_dim (int): Dimension D of node and edge features.
+        num_heads (int): Number of attention heads H.
+        feature_dim (int): Total feature dimension for queries, keys, and values.
+        query (nn.Linear): Linear layer for query projection.
+        key_i (nn.Linear): Linear layer for key projection from target node.
+        key_j (nn.Linear): Linear layer for key projection from source node.
+        value_i (nn.Linear): Linear layer for value projection from target node.
+        value_j (nn.Linear): Linear layer for value projection from source node.
+        edge (nn.Linear): Linear layer for edge feature projection.
+        layer_norm (nn.LayerNorm): Layer normalization applied before sigmoid activation.
+        symmetry (nn.Linear): Linear layer for symmetry projection.
+    """
     def __init__(self, hidden_dim, head_size):
         """
         Initializes the AttentionFunction module.
@@ -14,7 +32,7 @@ class AttentionFunction(nn.Module):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.num_heads = head_size
-        self.feature_dim = hidden_dim * 3  # For value: value_i + value_j + edge
+        self.feature_dim = hidden_dim * 3  # Total feature dimension for queries, keys, and values.
 
         # Linear projections for each input, packed across all heads
         self.query = nn.Linear(hidden_dim, hidden_dim)
@@ -24,57 +42,57 @@ class AttentionFunction(nn.Module):
         self.value_j = nn.Linear(hidden_dim, hidden_dim)
         self.edge    = nn.Linear(hidden_dim, hidden_dim)
 
-        # Normalization applied before sigmoid attention activation
-        self.layer_norm = nn.LayerNorm(self.feature_dim)
+        self.layer_norm = nn.LayerNorm(self.feature_dim) # Normalization to apply before sigmoid attention activation
 
-        # Linear transform for edge symmetry contribution (no bias)
-        self.symmetry = nn.Linear(1, hidden_dim, bias=False)
+        self.symmetry = nn.Linear(1, hidden_dim, bias=False) # Linear transform for edge symmetry contribution (no bias)
 
     def split_heads(self, x):
         """
         Splits the input tensor into multiple heads.
 
         Args:
-            x (torch.Tensor): Input tensor of shape (N, D).
+            x (torch.Tensor): (N, hidden_dim) matrix.
 
         Returns:
             torch.Tensor: Tensor of shape (H, N, D/H), where H is the number of heads.
         """
         N = x.size(0)
-        head_dim = self.hidden_dim // self.num_heads
-        x = x.view(N, self.num_heads, head_dim)  # (N, H, D/H)
+        head_dim = self.hidden_dim // self.num_heads # Calculate the size of each attention head.
+        x = x.view(N, self.num_heads, head_dim) # Reshape the tensor to separate the heads
         return x.permute(1, 0, 2)  # (H, N, D/H)
 
-    def forward(self, edge, gradient):
+    def forward(self, edges, gradient):
         """
         Computes attention weights and value matrix for a batch of edges.
 
         Args:
-            edge (tuple): Tuple of 5 tensors (each [N, D]) representing:
-                edge[0]: f_i — feature of target node
-                edge[1]: f_j — feature of source node
-                edge[2]: e_ij — edge features
-                edge[3]: e_sym — symmetry info (0 = physical, 1 = augmented)
-                edge[4]: e_mask — validity (1 = valid, 0 = invalid)
-
             gradient (float): Controls how much attention to give to invalid edges (higher = less).
+            edges (E, 6, hidden_dim): Edges to calculate attention of.
+                edge info:
+                [:, 0, :] = f_i             (E, hidden_dim) matrix of destination node features
+                [:, 1, :] = f_j             (E, hidden_dim) matrix of source node features
+                [:, 2, :] = e_ij            (E, hidden_dim) matrix of embedded distance (edge feature)
+                [:, 3, 0] = e_sym           (E) symmetry mask indicating if edge is displaced over augmentation [1=yes, 0=no]
+                [:, 4, 0] = e_mask          (E) validity mask for edges indicating if graph is valid [1=yes, 0=no]
+                [:, 5, 0] = target_index    (E) Indices of destination node features in 'node_chunk'.
 
         Returns:
-            alpha (Tensor): Attention weights, shape (H, N, 3D/H)
-            value_C (Tensor): Value matrix, shape (H, N, 3D/H)
+            alpha (torch.Tensor): (head_size, E, 3*hidden_dim/head_size) matrix of attention scores per edge.
+            value_C (torch.Tensor): (head_size, E, 3*hidden_dim/head_size) matrix of concatenated values.
         """
-        N = edge.size(0)
+        E = edges.size(0)
         head_dim = self.hidden_dim // self.num_heads
         feature_dim_per_head = 3 * head_dim
 
-        f_i     = edge[:, 0, :]  # (N, D)
-        f_j     = edge[:, 1, :]  # (N, D)
-        e_ij    = edge[:, 2, :]  # (N, D)
-        m_sym   = edge[:, 3, 0]  # (N,)
-        m_valid = edge[:, 4, 0]  # (N,)
+        # Extract edge features
+        f_i     = edges[:, 0, :]  # (E, hidden_dim) matrix of destination node features
+        f_j     = edges[:, 1, :]  # (E, hidden_dim) matrix of source node features
+        e_ij    = edges[:, 2, :]  # (E, hidden_dim) matrix of embedded distance (edge feature)
+        m_sym   = edges[:, 3, 0]  # (E) symmetry mask indicating if edge is displaced over augmentation [1=yes, 0=no]
+        m_valid = edges[:, 4, 0]  # (E) validity mask for edges indicating if graph is valid [1=yes, 0=no]
 
         # Apply linear projections and reshape for each head
-        query      = self.split_heads(self.query(f_i))       # (H, N, D/H)
+        query      = self.split_heads(self.query(f_i))
         key_i      = self.split_heads(self.key_i(f_i))
         key_j      = self.split_heads(self.key_j(f_j))
         value_i    = self.split_heads(self.value_i(f_i))
@@ -82,34 +100,33 @@ class AttentionFunction(nn.Module):
         edge_trans = self.split_heads(self.edge(e_ij))
 
         # Concatenate features along the last dimension
-        query_C = torch.cat((query, query, query), dim=-1)          # (H, N, 3D/H)
-        key_C   = torch.cat((key_i, key_j, edge_trans), dim=-1)     # (H, N, 3D/H)
-        value_C = torch.cat((value_i, value_j, edge_trans), dim=-1) # (H, N, 3D/H)
+        query_C = torch.cat((query, query, query), dim=-1)
+        key_C   = torch.cat((key_i, key_j, edge_trans), dim=-1)     
+        value_C = torch.cat((value_i, value_j, edge_trans), dim=-1) 
 
         # Raw attention score (element-wise product)
-        d = key_C.size(-1)  # = 3D/H
-        alpha_raw = query_C * key_C / d                             # (H, N, 3D/H)
+        dimension_of_key = key_C.size(-1)
+        alpha_raw = query_C * key_C / dimension_of_key # Hadamard( Query, Key ) / 3*hidden_dim
 
-        # LayerNorm + sigmoid
-        alpha = alpha_raw.permute(1, 0, 2).reshape(N, -1)           # (N, 3D)
-        alpha = torch.sigmoid(self.layer_norm(alpha))               # (N, 3D)
-        alpha = alpha.view(N, self.num_heads, feature_dim_per_head).permute(1, 0, 2)  # (H, N, 3D/H)
+        alpha = alpha_raw.permute(1, 0, 2).reshape(E, -1)           # (E, 3*hidden_dim)
+        alpha = torch.sigmoid(self.layer_norm(alpha))               # Apply LayerNorm and sigmoid (E, 3*hidden_dim)
+        alpha = alpha.view(E, self.num_heads, feature_dim_per_head).permute(1, 0, 2)  # (head_size, E, 3*hidden_dim/head_size)
 
         # Symmetry projection: (N,) → (N, 1) → (H, N, D/H)
         m_sym = m_sym.unsqueeze(-1)  # (N, 1)
-        sym_proj = self.split_heads(self.symmetry(m_sym))           # (H, N, D/H)
-        symmetry = 1 + sym_proj * edge_trans                        # (H, N, D/H)
-        symmetry = symmetry.repeat(1, 1, 3)                         # (H, N, 3D/H)
+        sym_proj = self.split_heads(self.symmetry(m_sym))           # (head_size, E, hidden_dim/head_size)
+        symmetry = 1 + sym_proj * edge_trans                        # (head_size, E, hidden_dim/head_size)
+        symmetry = symmetry.repeat(1, 1, 3)                         # (head_size, E, 3*hidden_dim/head_size)
 
-        # Validity modifier
+        # Validity modifier that modify the attention weights based on validity mask
         m_valid = torch.sigmoid(gradient * (m_valid - 0.5))         # (N,)
         m_valid = m_valid.unsqueeze(0).unsqueeze(-1)                # (1, N, 1)
-        m_valid = m_valid.repeat(1, 1, feature_dim_per_head)        # (1, N, 3D/H)
+        m_valid = m_valid.repeat(1, 1, feature_dim_per_head)        # (1, N, 3*idden_dim/head_size)
 
         # Final attention weights
-        alpha = alpha * symmetry * m_valid                          # (H, N, 3D/H)
+        alpha = alpha * symmetry * m_valid                          # (head_size, E, 3*hidden_dim/head_size)
 
-        return alpha, value_C  # both (H, N, 3D/H)
+        return alpha, value_C  # both (head_size, E, 3*hidden_dim/head_size)
     
     def to(self, device):
         """
@@ -117,6 +134,9 @@ class AttentionFunction(nn.Module):
 
         Args:
             device (torch.device): The device to move the instance to.
+
+        Returns:
+            Attention Funcion: instance of the Attention Function class moved to the specified device. 
         """
         self.query = self.query.to(device)
         self.key_i = self.key_i.to(device)

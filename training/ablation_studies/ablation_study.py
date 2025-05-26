@@ -1,4 +1,5 @@
 import os
+
 from models.components.ACG import ACG
 from setup import DATA_PATH
 from training.engine import SAM_TrainingEngine
@@ -8,6 +9,15 @@ from training.ablation_studies.SAM_no_group import NoGroupTheory
 
 
 def study():
+    """
+    Conducts an ablation study to evaluate the impact of different components pm the perfomance of the SAM model.
+    The study compares the original model with three variation that excule specific components:
+    1. No ACG: Excludes the ACG component.
+    2. No Contrastive: Excludes the contrastive loss.
+    3. No Group Theory: Excludes the group theory component.
+    The performance of each model is evaluated using the same dataset and hyperparameters.
+    """
+    # Hyperparameters for the training process
     learning_rate = 1e-4
     crystal_property = "e_form"
     training_data_file = "bulk_megnet_train.pkl"
@@ -16,8 +26,9 @@ def study():
     batch_size = 32
     margin = 20.0
 
-    acg = ACG()
+    acg = ACG() # Intitialize the ACG(Automatic Crystal Graph) component
     
+    # Train the original model and the three variations
     original_best_loss = SAM_TrainingEngine(
         learning_rate=learning_rate,
     ).fit(
@@ -31,6 +42,7 @@ def study():
         margin=margin
     )
 
+    # Train the model without the ACG component
     no_acg_best_loss = NoACG(
         crystal_property=crystal_property,
         learning_rate=learning_rate,
@@ -41,6 +53,7 @@ def study():
         margin=margin
     )
 
+    # Train the model without the contrastive loss component
     no_contrastive_best_loss = NoContrastive(
         crystal_property=crystal_property,
         learning_rate=learning_rate,
@@ -61,6 +74,7 @@ def study():
     #     margin=margin
     # )
 
+    # Print the results of the ablation study
     print()
     print("Ablation Study Results:")
     print("===================================")
