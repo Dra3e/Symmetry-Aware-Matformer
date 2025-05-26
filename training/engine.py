@@ -29,10 +29,12 @@ class SAM_TrainingEngine:
 
         Args:
             learning_rate (float): Learning rate for the optimizer.
+            weight_decay (float): Weight decay for the optimizer.
         """
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = Transformer().to(self.device)
         self.multi_loss = AutomaticWeightedLoss(n_tasks=2).to(self.device)
+        # Initialize the optimizer with weight decay for model parameters and no decay for loss parameters
         self.model_optimizer = torch.optim.AdamW(
             [
                 {"params": self.model.parameters(),         "weight_decay": weight_decay},
@@ -41,6 +43,7 @@ class SAM_TrainingEngine:
             lr=learning_rate,
             betas=(0.9, 0.98),
         )
+        # Initialize the scaler for mixed precision training
         self.scaler = torch.cuda.amp.GradScaler(enabled=(self.device.type == 'cuda'))
     
     def fit(self, property, training_path: str, validation_path: str, graph_builder: Callable[[Crystal], list], loss_type = "multi", evaluation_loss_type="mse", num_epochs = 50, batch_size = 32, margin = 5.0):
@@ -85,8 +88,11 @@ class SAM_TrainingEngine:
             self.model.train() # Set model to training mode
             epoch_loss = 0.0 # Initialize epoch loss
 
+            # Iterate over training batches
             for graphs, target_values in tqdm(training_dataloader, desc="Training on crystals", unit="batch"):
                 graphs, target_values = self._move_to_device(graphs, target_values) # Move crystals and targets to device
+                
+                # Mixed precision forward pass
                 with torch.cuda.amp.autocast(enabled=(self.device.type == 'cuda'), dtype=torch.bfloat16): # Mixed precision
                     # Forward pass and compute loss
                     property_loss, contrastive_loss = self._get_loss(
@@ -95,12 +101,13 @@ class SAM_TrainingEngine:
                         target_values=target_values,
                         margin=margin
                     )
+
+                # Handle multi-task loss or single loss
                 if loss_type == "multi":
                     self._pcgrad(property_loss, contrastive_loss) # PCGrad on automatic Weighted Loss
                     batch_loss = (property_loss + contrastive_loss).detach().item()
                 else:
-
-                    solo = property_loss + contrastive_loss # Because in htis case one of the losses is zero
+                    solo = property_loss + contrastive_loss # Because in this case one of the losses is zero
                     self.model_optimizer.zero_grad(set_to_none=True)
                     self.scaler.scale(solo).backward()
                     self.scaler.step(self.model_optimizer)
@@ -167,6 +174,7 @@ class SAM_TrainingEngine:
                         target_values=target_values, 
                         margin=margin
                     )
+                    # Aggregate losses based on loss type 
                     if loss_type=="multi":
                         total = self.multi_loss(property_loss, contrastive_loss)
                     else: # Because otherwise one of the losses is zero
@@ -191,6 +199,7 @@ class SAM_TrainingEngine:
         Returns:
             torch.Tensor: Computed loss for the batch.
         """
+        # Forward pass through the model for each graph in the batch
         results = [self.model(graphs=graph_list) for graph_list in graph_batch]
         batch_property_losses = []
         batch_contrastive_losses = []
@@ -199,12 +208,14 @@ class SAM_TrainingEngine:
         for i, (predictions, latents, graph_list) in enumerate(results):
             target = target_values[i]
 
+            # Comupte property loss
             valid_prediction = predictions[valid_grah_index] #Get the prediction of the valid graph e.g. the crystal
             loss_property = LossProperty(
                 actual_Y = target.expand_as(valid_prediction),
                 predicted_Y = valid_prediction
             )
-
+            
+            # Compute contrastive loss
             flags = torch.tensor([g.m_valid for g in graph_list], dtype=torch.float32, device=self.device)
             lat_slice   = latents[:valid_grah_index]
             flag_slice  = flags[:valid_grah_index]
@@ -239,57 +250,61 @@ class SAM_TrainingEngine:
     
     def _pcgrad(self, property_loss, contrastive_loss):
         """
-        PCGrad + AutomaticWeightedLoss (AWL) with AMP
-        Fixed: only one unscale_() call, no glued gradients.
+        Apply *Projected Conflicting Gradients* (PCGrad) to the pair of
+        task-specific losses after scaling them with the current
+        AutomaticWeightedLoss weights, then perform an optimiser step.
+
+        Args:
+            property_loss (torch.Tensor): A Tensor of shape (1, 1) containing the property loss.
+            contrastive_loss (torch.Tensor):  A Tensor of shape (1, 1) containing the contrastive loss.
         """
-        # ------------------------------------------------------------------ 1) AWL weights
-        sigma_sq = torch.exp(self.multi_loss.log_sigma).pow(2)        # σ_i² ≥ 0
-        w_prop, w_con = (0.5 / sigma_sq).unbind()                     # two scalars
+        
+        sigma_sq = torch.exp(self.multi_loss.log_sigma).pow(2) # Compute squared uncertainty values σ² for each task
+        weight_prop, weight_con = (0.5 / sigma_sq).unbind()              # Compute weights w_i = 0.5 / σ² for each task
 
-        # ------------------------------------------------------------------ 2) set-up
-        self.model_optimizer.zero_grad(set_to_none=True)
-        scale = self.scaler.get_scale()                               # same for both tasks
+        self.model_optimizer.zero_grad(set_to_none=True)    # Clear existing gradients
+        scale = self.scaler.get_scale()                     # Get AMP scale factor (same for both tasks)
 
-        # ------------------------------------------------------------------ 3) property-loss backward (scaled)
-        scaled_prop = self.scaler.scale(w_prop * property_loss)
+        # Backward propagate on the weighted and scaled property loss
+        scaled_prop = self.scaler.scale(weight_prop * property_loss)
         scaled_prop.backward(retain_graph=True)
+        gradient_prop_scaled = [self._safe_clone(param.grad, param) for param in self.model.parameters()] # Clone the scaled property gradients for later use
+        for param in self.model.parameters(): # Clear gradients before processing contrastive loss
+            param.grad = None
 
-        # cloned *scaled* gradients
-        g_prop_scaled = [self._safe_clone(p.grad, p) for p in self.model.parameters()]
-
-        # ------------------------------------------------------------------ 4) contrastive-loss backward (scaled)
-        for p in self.model.parameters():                             # clear before 2nd pass
-            p.grad = None
-        scaled_con = self.scaler.scale(w_con * contrastive_loss)
-        scaled_con.backward(retain_graph=True)
-
-        # ------------------------------------------------------------------ 5) unscale ONCE (affects current .grad tensors)
-        self.scaler.unscale_(self.model_optimizer)
-
-        # un-scaled contrastive grads (already in .grad after unscale_)
-        g_con = [self._safe_clone(p.grad, p) for p in self.model.parameters()]
-
-        # un-scaled property grads = scaled / scale
+        # Backward propagate on the weighted and scaled contrastive loss  
+        scaled_con = self.scaler.scale(weight_con * contrastive_loss)
+        scaled_con.backward(retain_graph=True) 
+        
+        # Unscale the scaled property and contrastive losses
+        self.scaler.unscale_(self.model_optimizer) # Unscale gradients once to bring them back to normal scale
+        gradient_con = [self._safe_clone(param.grad, param) for param in self.model.parameters()] # Clone the unscaled contrastive gradients
         inv_scale = 1.0 / scale
-        g_prop = [gp * inv_scale for gp in g_prop_scaled]
+        gradient_prop = [gp * inv_scale for gp in gradient_prop_scaled] # Convert scaled property gradients to unscaled by dividing by the scale factor
 
-        # ------------------------------------------------------------------ 6) PCGrad projection & merge  (in-place on un-scaled grads)
-        for p, gp, gc in zip(self.model.parameters(), g_prop, g_con):
-            dot = (gp * gc).sum()
-            if dot < 0:                                               # conflicting
-                gc = gc - dot / gp.norm().pow(2) * gp
-            p.grad = gp + gc                                          # merged gradient
+        # Remove conflicts and merge gradients
+        for param, gp, gc in zip(self.model.parameters(), gradient_prop, gradient_con): 
+            dot = (gp * gc).sum()                       # Get the inner product between task gradients
+            if dot < 0:
+                gc = gc - dot / gp.norm().pow(2) * gp   # project gc onto the plane orthogonal to gp to reduce conflict.
+            param.grad = gp + gc                        # Merge the non-conflicting gradients
 
-        # ------------------------------------------------------------------ 7) AWL regulariser   log(1+σ²)
-        # Only σ-parameters need grads here, so we add it *without* scaling.
-        torch.log1p(sigma_sq).sum().backward()
+        torch.log1p(sigma_sq).sum().backward() # Add AWL regularization loss term (log(1 + σ²)) gradients to σ-parameters
 
-        # ------------------------------------------------------------------ 8) optimiser / scaler step
+        # Perform optimizer step and update AMP scaler
         self.scaler.step(self.model_optimizer)
         self.scaler.update()
     
     def _safe_clone(self, gradient, parameter: torch.nn.Parameter):
-        """Return a detached clone of `g`, or a zero tensor if g is None."""
+        """Return a detached clone of `g`, or a zero tensor if g is None."
+        
+        Args:
+            gradient (torch.Tensor or None): The gradient to clone.
+            parameter (torch.nn.Parameter): The parameter to match the shape of the zero tensor.
+            
+        Returns:
+            torch.Tensor: A detached clone of the gradient or a zero tensor of the same shape.
+        """
         if gradient is None:
             return torch.zeros_like(parameter, memory_format=torch.preserve_format)
         return gradient.detach().clone()

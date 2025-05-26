@@ -51,7 +51,7 @@ class DataGetter(Dataset):
         self.num_data_points = len(self.crystals) 
 
         self.graph_builder = graph_builder
-        self._graphs: list | None = [None] * len(self.crystals)  # On‑demand cache
+        self._graphs: list | None = [None] * len(self.crystals)  # On-demand cache
 
         # Initilizes a data loader for batching and shuffling the data
         self.loader = DataLoader(
@@ -84,12 +84,12 @@ class DataGetter(Dataset):
             if value is None or (value != value) or not isinstance(value, (float, int, torch.Tensor)):
                 print(f"⚠️  {property_name} missing for id={entry.get('id', 'NA')}")
                 continue
-            elif isinstance(value, torch.Tensor):
+            elif isinstance(value, torch.Tensor): # If the value is a torch.Tensor, extract the scalar number from it
                 value = value.item()
             elif isinstance(value, str):
-                s = value.strip().lower()
-                if m := _TENSOR_RE.fullmatch(s):
-                    value = float(m.group(1))
+                s = value.strip().lower() # Removes leading/trailing whitespace and convert to lowercase
+                if m := _TENSOR_RE.fullmatch(s): # Check if the string matches a known tensor-like pattern (e.g., "tensor(1.23)")
+                    value = float(m.group(1)) # Extract the numeric part and convert it to float
 
             atoms = entry["atoms"] # Extract atomic data
             try:

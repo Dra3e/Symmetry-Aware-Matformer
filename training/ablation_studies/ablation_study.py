@@ -26,20 +26,20 @@ def study():
     formation_energy = "e_form"
 
     learning_rate = 1e-4
-    training_data_file = "bulk_megnet_train.pkl"
-    validation_data_file = "bulk_megnet_val.pkl"
-    num_epochs = 150
-    batch_size = 32
-    margin = 20.0
+    training_data_file = "bulk_megnet_train.pkl" # Path to the traning dataset
+    validation_data_file = "bulk_megnet_val.pkl" # Path to the validation dataset
+    num_epochs = 150 # Number of epochs for training
+    batch_size = 32 # Batch size for training
+    margin = 20.0 # Margin for the contrastive loss
 
     acg = ACG() # Intitialize the ACG(Automatic Crystal Graph) component
     
     # Train the original model and the three variations
     original_best_loss = SAM_TrainingEngine(
-        learning_rate=learning_rate,
+        learning_rate=learning_rate, # Learning rate for the optimizer
     ).fit(
         property=formation_energy,
-        training_path=os.path.join(DATA_PATH, training_data_file),
+        training_path=os.path.join(DATA_PATH, training_data_file), 
         validation_path=os.path.join(DATA_PATH, validation_data_file),
         graph_builder=acg.build_graphs,
         loss_type="multi",
@@ -69,16 +69,6 @@ def study():
         batch_size=batch_size,
         margin=margin
     )
-
-    # no_group_theory_best_loss = NoGroupTheory(
-    #     crystal_property=crystal_property,
-    #     learning_rate=learning_rate,
-    #     training_data_file=training_data_file,
-    #     validation_data_file=validation_data_file,
-    #     num_epochs=num_epochs,
-    #     batch_size=batch_size,
-    #     margin=margin
-    # )
 
     # Print the results of the ablation study
     print()

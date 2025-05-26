@@ -21,7 +21,9 @@ def NoGroupTheory(crystal_property, learning_rate, training_data_file, validatio
     Returns:
         float: The best loss achieved during training.
     """
-    graph_builder = NoGroupTheory() # Initialize the graph builder without group theory
+    # Initialize the graph builder without group theory
+    graph_builder = NoGroupTheory()
+    # TRain the SAM model using the specified parameters
     return SAM_TrainingEngine(
         learning_rate=learning_rate,
     ).fit(
