@@ -122,7 +122,7 @@ class SAM_TrainingEngine:
                         target_values=target_values,
                         margin=margin
                     )
-                print(f"Property Loss: {property_loss.item():.4f}, Contrastive Loss: {contrastive_loss.item():.4f}")
+                # print(f"Property Loss: {property_loss.item():.4f}, Contrastive Loss: {contrastive_loss.item():.4f}")
                 if loss_type == "multi":
                     self._pcgrad(property_loss, contrastive_loss) # PCGrad on automatic Weighted Loss
                     batch_loss = (property_loss + contrastive_loss).detach().item()
@@ -323,17 +323,21 @@ class SAM_TrainingEngine:
             return torch.zeros_like(parameter, memory_format=torch.preserve_format)
         return gradient.detach().clone()
 
-    def _move_to_device(self, graphs: List[List[CrystalGraph]], targets: torch.Tensor):
-        """
-        Move graphs and targets to the configured device.
+    # def _move_to_device(self, graphs: List[List[CrystalGraph]], targets: torch.Tensor):
+    #     """
+    #     Move graphs and targets to the configured device.
 
-        Args:
-            graphs (list): List of graphs.
-            targets (torch.Tensor): Target values.
+    #     Args:
+    #         graphs (list): List of graphs.
+    #         targets (torch.Tensor): Target values.
 
-        Returns:
-            tuple: Graphs and targets moved to the device.
-        """        
-        moved_graphs = [[g.to(self.device) for g in g_list] for g_list in graphs]
-        return moved_graphs, targets.to(self.device)
+    #     Returns:
+    #         tuple: Graphs and targets moved to the device.
+    #     """        
+    #     moved_graphs = [[g.to(self.device) for g in g_list] for g_list in graphs]
+    #     return moved_graphs, targets.to(self.device)
+    
+    def _move_to_device(self, graphs: List[List[CrystalGraph]], targets: torch.Tensor): 
+        moved = [[g.clone_to(self.device) for g in g_list] for g_list in graphs]
+        return moved, targets.to(self.device)
         

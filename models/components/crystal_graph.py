@@ -1,3 +1,4 @@
+import copy
 import torch
 import torch.nn as nn
 
@@ -126,3 +127,8 @@ class CrystalGraph(nn.Module):
         self.nodes = self.nodes.to(device)
         self.edges = self.edges.to(device)
         return self
+    
+    def clone_to(self, device: torch.device):
+        """Return a deep copy of this graph on `device`."""
+        g = copy.deepcopy(self)      # Python deep copy of the object
+        return g.to(device)

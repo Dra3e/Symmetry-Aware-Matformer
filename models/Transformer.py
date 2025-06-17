@@ -7,7 +7,7 @@ from models.scripts.graph_embedding import GraphEmbedder
 
 class Transformer(nn.Module):
     """ The transformer model for predicting crystal properties. """
-    def __init__(self, atom_feature_dim=92, hidden_dim=120, num_rbf_kernels=50, min_rbf_dist=0.0, max_rbf_dist=8.0, num_heads=4, gradient=20): 
+    def __init__(self, atom_feature_dim=118, hidden_dim=120, num_rbf_kernels=50, min_rbf_dist=0.0, max_rbf_dist=8.0, num_heads=4, gradient=20): 
         super(Transformer, self).__init__()
         """
         Initialize the transformer model.

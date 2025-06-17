@@ -135,7 +135,7 @@ class AtomFeatureLookup(nn.Module):
         super().__init__()
         self.register_buffer("atom_features", torch.zeros((atom_feature_dim, atom_feature_dim)))
 
-        for atomic_num in range(1, 93):  # Atomic numbers 1 to 92
+        for atomic_num in range(1, atom_feature_dim+1):  # Atomic numbers 1 to 92
             elem = element(atomic_num)
             # Example feature vector: atomic number, atomic mass, electronegativity, group, period
             features = [

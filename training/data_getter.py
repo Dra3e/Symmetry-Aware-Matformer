@@ -106,6 +106,7 @@ class DataGetter(Dataset):
                 X = torch.tensor(struct.cart_coords, dtype=torch.float32)
                 L = torch.tensor(struct.lattice.matrix, dtype=torch.float32)
 
+                if A.max() > 100: continue # Skip crystals with theoretical atomic numbers
                 crystals.append(Crystal(A, X, L))
                 props.append(value)
 
