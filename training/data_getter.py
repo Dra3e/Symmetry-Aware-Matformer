@@ -1,15 +1,14 @@
-import torch
-import os
-import pickle
-
 from __future__ import annotations
-import os
-import re
 from pathlib import Path
 from typing import Callable, Sequence
 from torch.utils.data import Dataset, DataLoader, default_collate
 from pymatgen.core import Structure
 from models.components.crystal import Crystal
+import torch
+import os
+import pickle
+import os
+import re
 
 _TENSOR_RE = re.compile(
     r"tensor\(\s*([+-]?\d+(\.\d+)?([eE][+-]?\d+)?)"      # numeric part

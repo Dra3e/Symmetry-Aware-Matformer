@@ -41,7 +41,7 @@ class ACG():
             original_crystal=C, 
             augmented_crystals=aug_valid,
             m_valid=1,
-            config=self.cutoff
+            cutoff=self.cutoff
         )
         
         inv_syms = self.invalid_aug.forward(valid_syms) # Get some invalid symmetry operations from the crystal
