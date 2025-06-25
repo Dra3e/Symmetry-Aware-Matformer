@@ -50,6 +50,6 @@ def build_graphs(C: Crystal):
     g_valid = CrystalGraph.init_from_crystal(
         crystal=C,
         m_valid=1, # Indicated a valid crystal graph
-        config=3.0, # Default cutoff configuration
+        cutoff=3.0, # Default cutoff configuration
     )
     return [g_valid]

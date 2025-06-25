@@ -50,7 +50,7 @@ class NoGroupTheory:
         g_actual = CrystalGraph.init_from_crystal(
             crystal=C,
             m_valid=1,
-            config=3.0,
+            cutoff=3.0,
         )
 
         aug_valid = C.apply_augmentations(valid_syms)
